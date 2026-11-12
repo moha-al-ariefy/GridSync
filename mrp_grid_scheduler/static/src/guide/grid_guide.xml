@@ -1,29 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
 <templates xml:space="preserve">
     <t t-name="mrp_grid_scheduler.GridGuide">
-        <main class="o_gridsync_guide">
-            <div class="o_gridsync_guide_inner">
-                <header class="o_gridsync_guide_header">
-                    <span class="o_gridsync_eyebrow">GRIDSYNC MRP</span>
-                    <h1>Let's get started.</h1>
-                    <p>Set up a site and connect its work centers to get the basics ready.</p>
-                    <button type="button" class="btn o_gridsync_primary" t-on-click="openSites">Open sites <span aria-hidden="true">→</span></button>
-                </header>
-                <section aria-labelledby="grid-steps-title" class="o_gridsync_steps">
-                    <div class="o_gridsync_section_heading">
-                        <span class="o_gridsync_eyebrow">THE FIRST STEPS</span>
-                        <h2 id="grid-steps-title">Start with the basics</h2>
-                    </div>
-                    <ol class="o_gridsync_step_list">
-                        <li><span class="o_gridsync_number">01</span><div><h3>Add a site</h3><p>Give the factory or production site a name and choose its company.</p></div></li>
-                        <li><span class="o_gridsync_number">02</span><div><h3>Connect work centers</h3><p>Select the work centers that belong to the site.</p></div></li>
-                        <li><span class="o_gridsync_number">03</span><div><h3>Set up production</h3><p>Create manufacturing orders and work orders in Odoo Manufacturing.</p></div></li>
-                    </ol>
-                </section>
-                <aside class="o_gridsync_next">
-                    <span class="o_gridsync_next_tag">COMING NEXT</span>
-                    <div><h2>Prices and scheduling</h2><p>Tariff data and schedule suggestions are still being built.</p></div>
+        <main class="o_gridsync_workspace">
+            <header class="o_gridsync_workspace_header">
+                <h1>Electricity prices</h1>
+                <button type="button" class="btn btn-secondary" t-on-click="openTariffs">Manage sources</button>
+            </header>
+            <div t-if="!state.sources.length" class="o_gridsync_empty">
+                <t t-if="state.failed">
+                    <p>Tariff sources could not be loaded.</p>
+                    <button type="button" class="btn btn-secondary" t-on-click="loadSources">Try again</button>
+                </t>
+                <p t-else="">Add a tariff source to view its price intervals here.</p>
+            </div>
+            <div t-else="" class="o_gridsync_workspace_body">
+                <aside class="o_gridsync_sources" aria-labelledby="grid-source-heading">
+                    <h2 id="grid-source-heading">Tariff sources</h2>
+                    <ul class="list-unstyled mb-0">
+                        <li t-foreach="state.sources" t-as="item" t-key="item.id">
+                            <button type="button" class="o_gridsync_source"
+                                    t-att-aria-pressed="item.id === state.sourceId ? 'true' : 'false'"
+                                    t-on-click="() => this.selectSource(item.id)">
+                                <span class="fw-semibold" t-esc="item.name"/>
+                                <small><t t-esc="item.company_id[1]"/> · <t t-esc="item.currency_id[1]"/></small>
+                            </button>
+                        </li>
+                    </ul>
                 </aside>
+                <section t-if="source" class="o_gridsync_prices" aria-labelledby="grid-price-heading">
+                    <div class="o_gridsync_price_header">
+                        <div>
+                            <h2 id="grid-price-heading" t-esc="source.name"/>
+                            <p t-if="source.source_type === 'energy_charts'" class="o_gridsync_meta">
+                                Day-ahead wholesale · <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
+                                <t t-else="">Awaiting first sync</t>
+                            </p>
+                            <p t-else="" class="o_gridsync_meta">Manually entered tariff</p>
+                        </div>
+                        <button type="button" class="btn btn-primary" t-on-click="openSource">Open tariff</button>
+                    </div>
+                    <p t-if="state.refreshFailed" role="status">Automatic refresh is unavailable. Showing stored data.</p>
+                    <p t-if="state.loading" role="status">Loading intervals…</p>
+                    <p t-elif="state.failed" role="status">Price intervals could not be loaded. Select the source to try again.</p>
+                    <p t-elif="!state.slots.length" role="status">This source has no price intervals yet.</p>
+                    <div t-else="" class="o_gridsync_table_scroll">
+                        <table class="o_gridsync_prices_table">
+                            <caption>
+                                <t t-if="state.historical">No current or upcoming prices. Most recent stored intervals</t>
+                                <t t-else="">Current and upcoming intervals</t>
+                                <span class="o_gridsync_meta"> · <t t-esc="timezone"/></span>
+                            </caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Interval</th>
+                                    <th scope="col" class="o_gridsync_number"><t t-esc="source.currency_id[1]"/> / MWh</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="state.slots" t-as="slot" t-key="slot.id">
+                                    <td t-esc="intervalDate(slot)"/>
+                                    <td t-esc="intervalTime(slot)"/>
+                                    <td class="o_gridsync_number" t-esc="price(slot.price_per_mwh)"/>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </main>
     </t>

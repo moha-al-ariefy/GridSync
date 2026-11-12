@@ -27,4 +27,6 @@ Give a manufacturing user the GridSync Planner role, or use the GridSync Manager
 
 Under Tariffs, a GridSync Manager can add an Energy-Charts DE-LU source and select **Sync prices**. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
 
-The DE-LU feed is a wholesale day-ahead market price, not a UAE tariff or a customer's electricity bill. Manual intervals can be entered with their source reference; recurring tariff rules, CSV import, automatic syncing and production scheduling are still being built. Price data is never used to change work orders in this version.
+Automatic sync is on by default for each company. Odoo checks every five minutes while its scheduled actions are running. Opening Overview or Tariffs also checks for a refresh if the last attempt was at least five minutes ago. An Odoo administrator can turn it off under **GridSync Å® Settings**. GridSync managers can still use **Sync prices**.
+
+The DE-LU feed is a wholesale day-ahead market price, not a UAE tariff or a customer's electricity bill. Manual intervals can be entered with their source reference; recurring tariff rules, CSV import and production scheduling are still being built. Price data is never used to change work orders in this version.

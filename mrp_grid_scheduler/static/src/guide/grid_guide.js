@@ -1,7 +1,13 @@
-import { Component } from "@odoo/owl";
+import { Component, onMounted, onWillStart, useState } from "@odoo/owl";
+import { deserializeDateTime, formatDateTime, serializeDateTime } from "@web/core/l10n/dates";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
+import { formatFloat } from "@web/views/fields/formatters";
 import { standardActionServiceProps } from "@web/webclient/actions/action_service";
+
+const { DateTime } = luxon;
+const SOURCE_FIELDS = ["name", "company_id", "currency_id", "source_type", "last_sync_at"];
+const SLOT_FIELDS = ["start_utc", "price_per_mwh", "minutes"];
 
 export class GridGuide extends Component {
     static template = "mrp_grid_scheduler.GridGuide";
@@ -9,10 +15,122 @@ export class GridGuide extends Component {
 
     setup() {
         this.action = useService("action");
+        this.orm = useService("orm");
+        this.state = useState({
+            sources: [],
+            sourceId: null,
+            slots: [],
+            historical: false,
+            loading: false,
+            failed: false,
+            refreshFailed: false,
+        });
+        this.loadSequence = 0;
+        onWillStart(() => this.loadSources());
+        onMounted(() => this.refreshPrices());
     }
 
-    openSites() {
-        return this.action.doAction("mrp_grid_scheduler.action_grid_site");
+    get source() {
+        return this.state.sources.find((source) => source.id === this.state.sourceId);
+    }
+
+    get timezone() {
+        return DateTime.local().zoneName;
+    }
+
+    async loadSources() {
+        try {
+            this.state.failed = false;
+            this.state.sources = await this.orm.searchRead("grid.tariff.source", [], SOURCE_FIELDS);
+            const source = this.source || this.state.sources[0];
+            if (source) {
+                await this.selectSource(source.id);
+            }
+        } catch {
+            this.state.failed = true;
+        }
+    }
+
+    async refreshPrices() {
+        if (!this.state.sources.some((source) => source.source_type === "energy_charts")) {
+            return;
+        }
+        try {
+            const refreshed = await this.orm.silent.call("grid.tariff.source", "refresh_energy_charts");
+            if (refreshed) {
+                await this.loadSources();
+            }
+        } catch {
+            this.state.refreshFailed = true;
+        }
+    }
+
+    async selectSource(sourceId) {
+        const sequence = ++this.loadSequence;
+        this.state.sourceId = sourceId;
+        this.state.loading = true;
+        this.state.failed = false;
+        this.state.slots = [];
+        const now = DateTime.utc();
+        const intervalStart = now.startOf("hour").plus({ minutes: Math.floor(now.minute / 15) * 15 });
+        const domain = [["source_id", "=", sourceId], ["is_current", "=", true]];
+        try {
+            let slots = await this.orm.searchRead(
+                "grid.tariff.slot",
+                [...domain, ["start_utc", ">=", serializeDateTime(intervalStart)]],
+                SLOT_FIELDS,
+                { order: "start_utc asc", limit: 8 },
+            );
+            const historical = slots.length === 0;
+            if (historical) {
+                slots = (await this.orm.searchRead("grid.tariff.slot", domain, SLOT_FIELDS, {
+                    order: "start_utc desc",
+                    limit: 8,
+                })).reverse();
+            }
+            if (sequence === this.loadSequence) {
+                this.state.slots = slots;
+                this.state.historical = historical;
+            }
+        } catch {
+            if (sequence === this.loadSequence) {
+                this.state.failed = true;
+            }
+        } finally {
+            if (sequence === this.loadSequence) {
+                this.state.loading = false;
+            }
+        }
+    }
+
+    dateTime(value) {
+        return formatDateTime(deserializeDateTime(value));
+    }
+
+    intervalTime(slot) {
+        const start = deserializeDateTime(slot.start_utc);
+        const end = start.plus({ minutes: slot.minutes });
+        const format = start.hasSame(end, "day") ? DateTime.TIME_SIMPLE : DateTime.DATETIME_SHORT;
+        return [start.toLocaleString(DateTime.TIME_SIMPLE), end.toLocaleString(format)].join(" – ");
+    }
+
+    intervalDate(slot) {
+        return deserializeDateTime(slot.start_utc).toLocaleString(DateTime.DATE_MED);
+    }
+
+    price(value) {
+        return formatFloat(value, { digits: [16, 6], minDigits: 2 });
+    }
+
+    openTariffs() {
+        return this.action.doAction("mrp_grid_scheduler.action_grid_tariff_source");
+    }
+
+    openSource() {
+        return this.action.doAction("mrp_grid_scheduler.action_grid_tariff_source", {
+            viewType: "form",
+            props: { resId: this.state.sourceId },
+        });
     }
 }
 
