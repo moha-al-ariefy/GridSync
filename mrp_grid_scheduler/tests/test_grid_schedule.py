@@ -121,6 +121,38 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual({str(key): item.proposed.start.isoformat() for key, item in replay.jobs.items()},
                          {key: item['start'] for key, item in run.snapshot['result'].items()})
 
+    def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
+        self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
+        _production, (operation,) = self.make_production([('Press', self.center, 60)])
+        operation.write({'date_start': at(8), 'date_finished': at(9)})
+        run = self.make_run()
+        run.action_compute()
+        self.assertTrue(run.complete and run.has_current_cost)
+        self.assertEqual((run.moved_count, run.saving, run.line_ids.proposed_start), (0, 0, at(8)))
+        self.assertAlmostEqual(run.proposed_cost, 5.4)
+
+    def test_shared_calendar_respects_the_proposal_company(self):
+        self.calendar.company_id = False
+        self.planner.sudo().company_ids = [Command.link(self.other_company.id)]
+        leaves = self.env['resource.calendar.leaves']
+        for time_type in ('leave', 'other'):
+            other_booking = leaves.with_company(self.other_company).create({
+                'name': 'Other company booking', 'calendar_id': self.calendar.id,
+                'company_id': self.other_company.id,
+                'resource_id': self.center.resource_id.id, 'time_type': time_type,
+                'date_from': at(13), 'date_to': at(14),
+            })
+            self.assertEqual(other_booking.company_id, self.other_company)
+        leaves.with_company(self.company).create({
+            'name': 'This company time off', 'calendar_id': self.calendar.id,
+            'resource_id': self.center.resource_id.id, 'time_type': 'leave',
+            'date_from': at(13, 30), 'date_to': at(14, 30),
+        })
+        self.make_production([('Press', self.center, 30)])
+        run = self.make_run().with_context(allowed_company_ids=[self.company.id, self.other_company.id])
+        run.action_compute()
+        self.assertEqual((run.line_ids.proposed_start, run.line_ids.proposed_end), (at(13), at(13, 30)))
+
     def test_deadlines_missing_prices_and_outside_dependencies(self):
         self.env['grid.tariff.slot'].sudo().search([
             ('source_id', '=', self.tariff.id), ('start_utc', '>=', at(6)), ('start_utc', '<', at(8)),
@@ -202,6 +234,8 @@ class TestGridSchedule(TransactionCase):
         run._change_schedule('apply')
         self.assertEqual(run.state, 'applied')
         self.assertEqual(run.applied_by, self.planner)
+        with self.assertRaisesRegex(UserError, 'Choose a complete proposal'):
+            run._change_schedule('apply')
         for operation in cut | finish:
             line = lines[operation.id]
             self.assertEqual((operation.date_start, operation.date_finished), (line.proposed_start, line.proposed_end))
@@ -212,6 +246,8 @@ class TestGridSchedule(TransactionCase):
         run._change_schedule('revert')
         self.assertEqual(run.state, 'reverted')
         self.assertEqual(run.reverted_by, self.planner)
+        with self.assertRaisesRegex(UserError, 'Only an applied proposal'):
+            run._change_schedule('revert')
         self.assertEqual((cut.date_start, cut.date_finished, finish.date_start, finish.date_finished),
                          (at(8), at(9), at(9), at(9, 30)))
         self.assertEqual((production.date_start, production.date_finished), original_production)
@@ -265,3 +301,15 @@ class TestGridSchedule(TransactionCase):
             run._change_schedule('revert')
         self.assertEqual(run.state, 'applied')
         self.assertEqual(operation.date_start, applied_start)
+
+    def test_apply_refuses_changed_tariff_prices(self):
+        _production, (operation,) = self.make_production([('Press', self.center, 30)])
+        operation.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.action_compute()
+        start = run.line_ids.proposed_start
+        self.tariff.slot_ids.filtered(lambda slot: slot.start_utc == start).sudo().write({'price_per_mwh': 99})
+        with self.assertRaisesRegex(UserError, 'Prices, working hours or bookings changed'):
+            run._change_schedule('apply')
+        self.assertEqual(run.state, 'proposed')
+        self.assertEqual((operation.date_start, operation.date_finished), (at(8), at(8, 30)))

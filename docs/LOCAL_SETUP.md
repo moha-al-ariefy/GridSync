@@ -44,6 +44,10 @@ GridSync managers can add a **Manual intervals**, **Time-of-use rules**, or **CS
 
 The [TAQA Distribution 2025 tariff booklet](https://www.addc.ae/en-US/business/Documents/2025%20Tariff%20%28English%29.pdf) lists 36.6 fils/kWh for peak hours and 27.0 fils/kWh outside peak hours for industrial customers over 1 MW. The peak window is 10:00 to 22:00 from June 1 through September 30, in Asia/Dubai. To check the historical summer example, use AED, enter 0.366 and 0.270 AED/kWh, and generate June 2 through June 8, 2025. The expected output is 672 intervals, 336 at each price. Verify current eligibility and the applicable tariff with the provider before using it for a real site.
 
+Under that published schedule, a November day has 96 intervals at 0.270 AED/kWh. Shifting the same booked workload within a flat rate saves zero on the energy charge. For a live site, use the account's current rate schedule and check it against a recent bill. The [Abu Dhabi Energy Support Program](https://www.added.gov.ae/en/invest/growth-sectors/advanced-manufacturing/industrial-programmes-and-incentives) can change the rates a qualifying site pays.
+
+[DEWA's industrial slabs](https://dewa.gov.ae/en/consumer/billing/slab-tariff) are based on monthly consumption. Entering the slabs as hours of the day would give the wrong cost comparison.
+
 
 ## Set up a work center for scheduling
 

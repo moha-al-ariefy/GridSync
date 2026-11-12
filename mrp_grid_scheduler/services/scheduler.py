@@ -10,10 +10,13 @@ marks, at the start of a working interval or at their current start.
 """
 import bisect
 import heapq
+import logging
 import math
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+_logger = logging.getLogger(__name__)
 
 STEP = timedelta(minutes=15)
 EPOCH = datetime(2000, 1, 1)
@@ -428,7 +431,12 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
     complete = not unscheduled
     lower_bound = math.fsum(bounds[key] for key in jobs) if complete and jobs else None
     if lower_bound is not None and lower_bound > proposed_cost + 10 ** -COST_DIGITS * max(1, len(jobs)):
-        raise AssertionError('The lower bound exceeds the proposed cost.')
+        times = {key: (item.start, item.end) for key, item in placed.items()}
+        verified = check_placements(horizon_start, horizon_end, workcenters, jobs.values(), times)
+        if verified != placed:
+            raise ScheduleInputError('The proposal costs could not be verified. Compute a new proposal.')
+        _logger.warning('GridSync hid a lower bound that exceeded the verified proposal cost.')
+        lower_bound = None
     return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete)
 
 
@@ -436,6 +444,7 @@ def check_placements(start, end, workcenters, jobs, times, require_prices=True):
     """making sure of the booking date before odoo save them"""
     centers = {item.key: _Center(item, start, end, require_power=require_prices) for item in workcenters}
     bookings = {key: list(center.busy) for key, center in centers.items()}
+    placements = {}
     for job in jobs:
         window = times.get(job.key)
         if not window:
@@ -449,13 +458,17 @@ def check_placements(start, end, workcenters, jobs, times, require_prices=True):
             raise ScheduleInputError(f'Operation {job.key} no longer fits its working hours.')
         if _overlaps(bookings[job.workcenter], low, high):
             raise ScheduleInputError(f'Operation {job.key} overlaps an existing booking.')
-        if require_prices and center.price(worked[1]) is None:
-            raise ScheduleInputError(f'Operation {job.key} is missing price intervals.')
+        if require_prices:
+            priced = center.price(worked[1])
+            if priced is None:
+                raise ScheduleInputError(f'Operation {job.key} is missing price intervals.')
+            placements[job.key] = Placement(low, high, *priced)
         for predecessor in job.predecessors:
             earlier = times.get(predecessor)
             if not earlier or earlier[1] > low:
                 raise ScheduleInputError(f'Operation {job.key} no longer fits its dependency order.')
         bookings[job.workcenter].append((low, high))
+    return placements
 
 
 def _iso(value):

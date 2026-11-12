@@ -193,19 +193,20 @@ class GridScheduleRun(models.Model):
         for slot in slots:
             prices[slot.source_id.id][slot.start_utc] = slot.price_per_mwh
         # Only booking times on the selected company's resources are needed.
-        leaves = self.env['resource.calendar.leaves'].sudo().search([
-            ('time_type', '=', 'other'), ('company_id', 'in', [False, self.company_id.id]),
+        leave_company = ('company_id', 'in', [False, self.company_id.id])
+        leaves = self.env['resource.calendar.leaves'].sudo().search_fetch([
+            ('time_type', '=', 'other'), leave_company,
             ('date_from', '<', end), ('date_to', '>', start),
             ('id', 'not in', workorders.leave_id.ids),
             '|', ('resource_id', 'in', centers.resource_id.ids),
             '&', ('resource_id', '=', False), ('calendar_id', 'in', centers.resource_calendar_id.ids),
-        ])
+        ], ['date_from', 'date_to', 'calendar_id', 'resource_id'])
         inputs = []
         for center in centers:
             calendar = center.resource_calendar_id
             intervals = calendar._work_intervals_batch(
                 pytz.utc.localize(start), pytz.utc.localize(end), resources=center.resource_id,
-                tz=pytz.timezone(calendar.tz or 'UTC'),
+                domain=[('time_type', '=', 'leave'), leave_company], tz=pytz.timezone(calendar.tz or 'UTC'),
             )[center.resource_id.id]
             busy = [(leave.date_from, leave.date_to) for leave in leaves if leave.resource_id == center.resource_id or (
                 not leave.resource_id and leave.calendar_id == calendar)]

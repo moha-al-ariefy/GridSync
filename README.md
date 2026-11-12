@@ -16,3 +16,7 @@ The [roadmap](ROADMAP.md) covers the build order. The [build plan](docs/GridSync
 - Show proposed schedules before applying them. Check for conflicts and make sure changes can be reverted.
 - Keep credentials, customer data and database backups out of Git.
 - Build on Odoo 19 Manufacturing and check the installed edition and APIs first.
+
+## License
+
+The GridSync add-on is licensed under [LGPL-3](LICENSE). See [GPL-3](COPYING) for the terms it builds on.

@@ -87,8 +87,10 @@ class TestGridTariff(TransactionCase):
         response = MagicMock(status_code=200)
         response.__enter__.return_value = response
         response.iter_content.return_value = [json.dumps(payload).encode()]
+        other = self.source.sudo().copy({'company_id': self.other_company.id})
         with patch('odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get', return_value=response):
-            self.source.with_user(self.manager).action_sync_energy_charts()
+            self.assertTrue(self.env['grid.tariff.source'].with_user(self.planner).refresh_energy_charts())
+        self.assertFalse(other.sync_ids or other.slot_ids)
         slot = self.env['grid.tariff.slot'].search([('source_id', '=', self.source.id)])
         self.assertEqual(len(slot), 1)
         self.assertEqual(slot.price_per_mwh, -3.5)

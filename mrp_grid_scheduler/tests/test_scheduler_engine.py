@@ -1,9 +1,12 @@
 import random
+from dataclasses import replace
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from odoo.tests import tagged
 from odoo.tests.common import BaseCase
 
+from ..services import scheduler
 from ..services.scheduler import (
     STEP, JobInput, ScheduleInputError, WorkcenterInput, dump_inputs, load_inputs, schedule,
 )
@@ -69,6 +72,25 @@ class TestSchedulerEngine(BaseCase):
         result = schedule(DAY, END, [center()], [job(1, current_start=at(10))])
         self.assertEqual((result.jobs[1].status, result.jobs[1].reason), ('unchanged', 'lowest'))
         self.assertEqual(result.jobs[1].proposed.start, at(10))
+
+    def test_hides_a_bad_lower_bound_after_checking_the_proposal(self):
+        data = center()
+        operation = job(1)
+        placement = scheduler.Placement(DAY, at(1), 10, 1)
+        valid = (placement, None, 'outside')
+        invalid_bound = (replace(placement, cost=2), None, 'outside')
+        with patch.object(scheduler, '_evaluate', side_effect=[invalid_bound, valid]), \
+                self.assertLogs(scheduler.__name__, level='WARNING'):
+            result = schedule(DAY, END, [data], [operation])
+        self.assertTrue(result.complete)
+        self.assertIsNone(result.lower_bound)
+        self.assertEqual(result.jobs[1].proposed, placement)
+        self.assertEqual(result.proposed_cost, 1)
+
+        invalid_proposal = (replace(placement, cost=0.5), None, 'outside')
+        with patch.object(scheduler, '_evaluate', side_effect=[invalid_bound, invalid_proposal]):
+            with self.assertRaisesRegex(ScheduleInputError, 'costs could not be verified'):
+                schedule(DAY, END, [data], [operation])
 
     def test_partial_intervals_and_negative_prices(self):
         data = center(power=12, working=[(at(0, 5), at(6))], price_map=prices(80, {

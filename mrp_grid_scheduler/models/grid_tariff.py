@@ -110,7 +110,7 @@ class GridTariffSource(models.Model):
                 raise UserError(_('Select a valid tariff source.'))
             domain.append(('id', '=', source_id))
         sources = self.search(domain)
-        return sources.sudo()._refresh_due_energy_charts()
+        return sources._refresh_due_energy_charts()
 
     @api.model
     def _cron_sync_energy_charts(self):
@@ -131,9 +131,8 @@ class GridTariffSource(models.Model):
             return _('Another price sync is running. Try again shortly.'), 'busy'
         now = fields.Datetime.now()
         if automatic:
-            self = self.filtered_domain([
+            self = self.filtered(lambda source: source.company_id.sudo().grid_auto_sync).filtered_domain([
                 ('active', '=', True), ('source_type', '=', 'energy_charts'),
-                ('company_id.grid_auto_sync', '=', True),
                 ('sync_ids', 'not any', [('started_at', '>', now - AUTO_SYNC_INTERVAL)]),
             ])
             if not self:
@@ -169,8 +168,8 @@ class GridTariffSource(models.Model):
         except (requests.RequestException, ValueError, UnicodeError, PriceDataError):
             logs.write({'message': 'The price data could not be fetched or validated.'})
             return _('Price sync failed. The previous data is still available.'), 'danger'
-        for log in logs:
-            log.source_id._save_energy_charts_prices(parsed, log)
+        for source, log in zip(self, logs, strict=True):
+            source._save_energy_charts_prices(parsed, log)
         return _('Price sync completed.'), 'success'
 
     def _save_energy_charts_prices(self, parsed, log):

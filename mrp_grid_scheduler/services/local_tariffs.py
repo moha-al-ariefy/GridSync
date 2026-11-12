@@ -18,7 +18,7 @@ WEEKDAYS = [
 ]
 CSV_COLUMNS = ['start', 'price_per_mwh', 'currency']
 CLOCK_PATTERN = re.compile(r'(?:[01][0-9]|2[0-3]):(?:00|15|30|45)')
-ISO_START = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::00)?(?:Z|[+-]\d{2}:\d{2})')
+ISO_START = re.compile(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::00)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)')
 PRICE_PATTERN = re.compile(r'[+-]?(?:[0-9]+(?:\.[0-9]{1,6})?|\.[0-9]{1,6})')
 
 

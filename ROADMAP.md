@@ -59,16 +59,15 @@ GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply
 
 **Phase 4 check.** Review a complete proposal before applying it. GridSync checks the saved work orders and the current calendar before it updates Odoo. Revert restores the original dates and calendar bookings when they still fit. The proposal keeps the planner and time for both actions.
 
-## 5. Get the hackathon demo ready
+## 5. Get GridSync ready for launch
 
-- Finish one complete flow using real, permitted tariff data and clearly sourced workcenter inputs.
-- Show the original schedule, proposal, calculation and limitations.
-- Use a UAE peak tariff only if it is verified and applicable. Otherwise explain the limitation and use a permitted live market dataset for the main demo.
-- Test clean installation, network failure, stale data, invalid inputs and repeated runs. Prepare a reproducible backup and rehearse the presentation.
-- Freeze features early enough to fix issues. Do not claim measured energy, audited emissions, customer savings or production readiness without evidence.
-- Confirm that the organizers accept the Green and Renewable Energy framing.
+- Start with one manufacturing site. Verify its current electricity tariff against its bill and rate schedule, including effective dates, peak hours and any site-specific terms. Get workcenter power readings or documented estimates from the site.
+- Compare the original and proposed schedules using the same tariff. Show estimated energy-charge savings, including zero savings when the applicable rate is flat. Keep wholesale market prices labeled with their market and currency.
+- Run proposals against the site's schedule for review first. Have the planner check the dates, deadlines and costs. Start applying changes after the planner has tested approval, conflict handling and revert on a copy of the site database.
+- Review permissions and company isolation. Test a clean install, an upgrade, backup restore, missing and stale prices, and simultaneous schedule edits. Check the planner screens in Odoo and make sure sync and scheduling failures are visible.
+- Confirm who owns the code and include the LGPL and GPL texts in the customer build. Confirm that the organizers accept the Green and Renewable Energy framing.
 
-**Done when:** the team can repeat the full demo and explain every input and result.
+**Done when:** a planner at the first site can verify the price inputs, review and apply a proposal, and recover the previous schedule when it is safe to do so. Record what the site verified before making savings claims.
 
 ## 6. After the core works
 
@@ -76,11 +75,11 @@ GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply
 - Add an energy and cost ledger using real time logs and sourced power profiles. Label the results as estimates unless actual meter data is available.
 - Explore accounting, more market providers and currency conversion.
 - Consider exact optimization, an optional ESG integration and advanced scheduling after the core is reliable and the required data is available.
-- Complete the security review, backups, restore, upgrade, monitoring, operational checks and independent validation before calling a release production-ready.
+- Repeat the rollout checks at other sites and verify operating and support costs before expanding.
 
 ## Build order
 
-The original plan suggests about three days, but that is an optimistic estimate. Start with **0 and 1**, then finish the price-to-proposal flow in **2 and 3**. Add safe apply and revert in **4**, then get the demo ready in **5**.
+The original plan suggests about three days, but that is an optimistic estimate. Start with **0 and 1**, then finish the price-to-proposal flow in **2 and 3**. Add safe apply and revert in **4**, then prepare for the first site launch in **5**.
 
 If time gets tight, leave extra providers and carbon features for later. Keep the scheduling checks and safety features.
 

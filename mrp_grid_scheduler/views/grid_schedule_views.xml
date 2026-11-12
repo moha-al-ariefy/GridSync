@@ -39,8 +39,11 @@
                     <field name="complete" invisible="1"/>
                     <field name="has_current_cost" invisible="1"/>
                     <field name="has_lower_bound" invisible="1"/>
-                    <p class="alert alert-info" role="status" invisible="state != 'proposed'">
+                    <p class="alert alert-info" role="status" invisible="state != 'proposed' or not complete or not moved_count">
                         Review the dates and estimated costs before applying this proposal.
+                    </p>
+                    <p class="alert alert-info" role="status" invisible="state != 'proposed' or not has_current_cost or moved_count">
+                        No lower-cost schedule was found. The current bookings stay in place.
                     </p>
                     <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
                         Some operations could not be scheduled. Any existing bookings for them stay in place.
@@ -62,7 +65,7 @@
                         unplanned or planned to start in this period, are included. Other bookings stay in place.
                     </p>
                     <group invisible="state == 'draft'">
-                        <group string="Estimated cost">
+                        <group string="Estimated energy cost">
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="proposed_cost"/>
                             <field name="current_cost" invisible="not has_current_cost"/>

@@ -64,6 +64,11 @@ class TestGridLocalTariff(TransactionCase):
         wizard.action_load()
         self.assertEqual(Counter(source.slot_ids.sorted('start_utc').mapped('price_per_mwh')), {270: 336, 400: 336})
         self.assertFalse(source.profile_dirty)
+        self.wizards.create({
+            'source_id': source.id, 'first_day': '2025-11-13', 'last_day': '2025-11-13',
+        }).action_load()
+        november = source.slot_ids.filtered(lambda slot: slot.start_utc >= datetime(2025, 11, 12, 20))
+        self.assertEqual(Counter(november.mapped('price_per_mwh')), {270: 96})
 
     def test_profile_overlap_and_uncovered_hours(self):
         source = self.sources.create({
@@ -110,7 +115,7 @@ class TestGridLocalTariff(TransactionCase):
         wizard.replace_existing = True
         wizard.action_load()
         self.assertEqual(source.slot_ids.sorted('start_utc').mapped('price_per_mwh'), [12, 1, 0])
-        for bad_row in ('2025-01-01T00:45,1,EUR', '2025-01-01T00:45Z,1,AED',
+        for bad_row in ('2025-01-01T00:45,1,EUR', '2025-01-01T00:45Z,1,AED', '2025-01-01T02:45+01:60,1,EUR',
                         '2025-01-01T00:00+00:00,1,EUR', '2025-01-01T00:45Z,NaN,EUR'):
             wizard.csv_file = base64.b64encode((header + '2025-01-01T00:00Z,12,EUR\n' + bad_row).encode())
             with self.subTest(bad_row=bad_row), self.assertRaises(UserError):
