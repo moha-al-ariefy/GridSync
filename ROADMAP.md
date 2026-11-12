@@ -1,6 +1,6 @@
 # GridSync MRP - Development Roadmap
 
-GridSync runs on Odoo 19. The tariff inputs are ready for the scheduler phase.
+GridSync runs on Odoo 19. Tariff inputs and the scheduler are ready. Review, apply and revert come next.
 
 ## 0. Get Odoo ready
 
@@ -45,6 +45,8 @@ GridSync runs on Odoo 19. The tariff inputs are ready for the scheduler phase.
 - Add carbon inputs only after the source and calculation are verified. Price-based scheduling should work without carbon data.
 
 **Done when:** tests show that proposed jobs respect availability, deadlines and dependencies, do not overlap, and have correctly calculated costs.
+
+**Phase 3 check.** GridSync > Schedule creates proposals from open work orders, working hours, existing bookings, dependencies, deadlines and 15-minute prices. The engine in `services/scheduler.py` has no ORM dependency and is a deterministic greedy heuristic. Tests cover partial intervals, negative and missing prices, breaks, a daylight-saving day, dependency order, overlap and costs checked one minute at a time. Each run saves a snapshot that reproduces it. Proposals do not change work orders yet, and carbon data is not used.
 
 ## 4. Review, apply and revert
 

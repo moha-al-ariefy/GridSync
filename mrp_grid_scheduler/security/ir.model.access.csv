@@ -9,3 +9,6 @@ access_grid_sync_planner,grid.tariff.sync planner,model_grid_tariff_sync,group_g
 access_grid_rule_planner,grid.tariff.rule planner,model_grid_tariff_rule,group_grid_planner,1,0,0,0
 access_grid_rule_manager,grid.tariff.rule manager,model_grid_tariff_rule,group_grid_manager,1,1,1,1
 access_grid_tariff_load_manager,grid.tariff.load manager,model_grid_tariff_load,group_grid_manager,1,1,1,1
+access_grid_run_planner,grid.schedule.run planner,model_grid_schedule_run,group_grid_planner,1,1,1,0
+access_grid_run_manager,grid.schedule.run manager,model_grid_schedule_run,group_grid_manager,1,1,1,1
+access_grid_line_planner,grid.schedule.line planner,model_grid_schedule_line,group_grid_planner,1,0,0,0

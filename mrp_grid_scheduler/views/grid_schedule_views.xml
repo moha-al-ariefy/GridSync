@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_grid_schedule_run_list" model="ir.ui.view">
+        <field name="name">grid.schedule.run.list</field>
+        <field name="model">grid.schedule.run</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="workcenter_ids" widget="many2many_tags" optional="show"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="proposed_cost" optional="show"/>
+                <field name="unscheduled_count" optional="show"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'proposed'"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_grid_schedule_run_form" model="ir.ui.view">
+        <field name="name">grid.schedule.run.form</field>
+        <field name="model">grid.schedule.run</field>
+        <field name="arch" type="xml">
+            <form string="Schedule proposal">
+                <header>
+                    <button name="action_compute" type="object" string="Compute proposal" class="btn-primary" invisible="state != 'draft' or not id"/>
+                    <button name="action_new_run" type="object" string="New run with these settings" invisible="state == 'draft'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <field name="complete" invisible="1"/>
+                    <field name="has_current_cost" invisible="1"/>
+                    <field name="has_lower_bound" invisible="1"/>
+                    <field name="currency_id" invisible="1"/>
+                    <p class="alert alert-info" role="status" invisible="state != 'proposed'">
+                        This is a proposal only. Work orders are not changed.
+                    </p>
+                    <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
+                        Some operations could not be scheduled and keep their current times. Check the reasons below.
+                        This proposal cannot be applied as a whole.
+                    </p>
+                    <group>
+                        <group>
+                            <field name="date_from" readonly="state != 'draft'"/>
+                            <field name="date_to" readonly="state != 'draft'"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
+                        </group>
+                        <group>
+                            <field name="workcenter_ids" widget="many2many_tags" readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                        </group>
+                    </group>
+                    <p class="text-muted" invisible="state != 'draft'">
+                        Choose work centers with schedule suggestions turned on. Operations that are ready or waiting, and either
+                        unplanned or planned to start in this period, are included. Other bookings stay in place.
+                    </p>
+                    <group invisible="state != 'proposed'">
+                        <group string="Estimated cost">
+                            <field name="proposed_cost"/>
+                            <field name="current_cost" invisible="not has_current_cost"/>
+                            <field name="saving" invisible="not has_current_cost"/>
+                            <field name="lower_bound" invisible="not has_lower_bound"/>
+                            <field name="gap" invisible="not has_lower_bound"/>
+                        </group>
+                        <group string="Operations">
+                            <field name="job_count"/>
+                            <field name="moved_count"/>
+                            <field name="unchanged_count"/>
+                            <field name="unscheduled_count" decoration-warning="unscheduled_count"/>
+                            <field name="computed_at"/>
+                            <field name="method"/>
+                        </group>
+                    </group>
+                    <notebook invisible="state != 'proposed'">
+                        <page string="Operations" name="lines">
+                            <field name="line_ids">
+                                <list create="0" delete="0" edit="0"
+                                      decoration-info="status == 'moved'" decoration-warning="status == 'unscheduled'">
+                                    <field name="currency_id" column_invisible="1"/>
+                                    <field name="has_current_cost" column_invisible="1"/>
+                                    <field name="production_id"/>
+                                    <field name="operation"/>
+                                    <field name="workcenter_id"/>
+                                    <field name="duration_minutes" optional="hide"/>
+                                    <field name="deadline" optional="hide"/>
+                                    <field name="current_start"/>
+                                    <field name="current_end" optional="hide"/>
+                                    <field name="proposed_start"/>
+                                    <field name="proposed_end"/>
+                                    <field name="energy_kwh" optional="show"/>
+                                    <field name="current_cost" invisible="not has_current_cost"/>
+                                    <field name="proposed_cost" invisible="status == 'unscheduled'"/>
+                                    <field name="status" widget="badge" decoration-info="status == 'moved'"
+                                           decoration-success="status == 'unchanged'" decoration-warning="status == 'unscheduled'"/>
+                                    <field name="reason"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Data and assumptions" name="data">
+                            <field name="data_notes" class="o_gridsync_notes"/>
+                            <ul class="text-muted mt-3">
+                                <li>Costs are estimates: operating power × working time × the tariff price for each 15-minute interval. They are not metered energy or a supply bill.</li>
+                                <li>Energy is counted only during working hours. A work center stays booked from an operation's start to its end, including breaks.</li>
+                                <li>Missing prices are never filled. Times without prices are not used.</li>
+                                <li>The scheduler is a deterministic heuristic, not an exact optimizer. Operations start on 15-minute marks, at the start of working hours or at their current time.</li>
+                                <li>The lower bound is shown only when every operation is scheduled. It assumes each operation could take its cheapest time on its own, ignoring the others, within the same start times. No schedule using those start times can cost less.</li>
+                                <li>Carbon intensity is not used. The proposal is based on price only.</li>
+                            </ul>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_grid_schedule_run_search" model="ir.ui.view">
+        <field name="name">grid.schedule.run.search</field>
+        <field name="model">grid.schedule.run</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="workcenter_ids"/>
+                <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="proposed" string="Proposed" domain="[('state', '=', 'proposed')]"/>
+            </search>
+        </field>
+    </record>
+    <record id="action_grid_schedule_run" model="ir.actions.act_window">
+        <field name="name">Schedule proposals</field>
+        <field name="res_model">grid.schedule.run</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a schedule proposal</p>
+            <p>Choose a period and work centers. GridSync suggests lower-cost times without changing work orders.</p>
+        </field>
+    </record>
+    <menuitem id="menu_grid_schedule" name="Schedule" parent="menu_grid_root" action="action_grid_schedule_run"
+              groups="group_grid_planner" sequence="5"/>
+</odoo>

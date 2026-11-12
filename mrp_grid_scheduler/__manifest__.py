@@ -12,6 +12,7 @@
         'views/grid_tariff_load_views.xml',
         'views/grid_tariff_views.xml',
         'views/res_config_settings_views.xml',
+        'views/grid_schedule_views.xml',
         'data/grid_tariff_cron.xml',
     ],
     'assets': {

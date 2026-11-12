@@ -48,3 +48,11 @@ The [TAQA Distribution 2025 tariff booklet](https://www.addc.ae/en-US/business/D
 ## Set up a work center for scheduling
 
 Open **GridSync > Work centers**, select a work center, and open **Electricity**. A user with both Manufacturing Administrator and GridSync Manager access can enter operating power in kW, add its reference, and choose a tariff from the same company. **Allow schedule suggestions** starts off. Turn it on after choosing an active tariff and entering a positive power value. GridSync planners can view these settings.
+
+## Create a schedule proposal
+
+Open **GridSync > Schedule** and create a proposal. Choose a period of up to 14 days and work centers with schedule suggestions turned on. Their tariffs must use the same currency, and each work center needs fixed working hours. Select **Compute proposal**.
+
+GridSync includes ready and waiting work orders from confirmed manufacturing orders. A work order is included if it is unplanned or planned to start in the period. Other bookings and time off stay in place. Operations keep their dependency order and finish before the manufacturing order deadline, a later planned operation, and the end of the period. They start on 15-minute marks, at the start of working hours or at their current time. Energy is counted only during working hours. Times with missing prices are not used.
+
+Each line shows the current and proposed times, estimated energy and cost, and why the operation moved, stayed or could not be scheduled. If every operation fits, the proposal also shows the cost at current times and a lower bound. The lower bound assumes each operation gets its cheapest time without competing for it. The run saves the data used and cannot be recomputed. Select **New run with these settings** to try again. Proposals do not change work orders yet.
