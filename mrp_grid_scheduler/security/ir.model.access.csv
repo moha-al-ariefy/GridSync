@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_grid_site_planner,grid.site planner,model_grid_site,group_grid_planner,1,1,1,0
+access_grid_site_manager,grid.site manager,model_grid_site,group_grid_manager,1,1,1,1

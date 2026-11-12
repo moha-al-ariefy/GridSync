@@ -1,0 +1,22 @@
+.o_gridsync_welcome {
+    max-width: 30rem;
+    margin: 2rem auto;
+    padding: 1.5rem;
+    border: 1px solid #d8e4db;
+    border-radius: 1rem;
+    background: #f5faf6;
+    color: #24442f;
+
+    h2 {
+        color: #173d27;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+        animation: gridsync-entrance 180ms ease-out both;
+    }
+}
+
+@keyframes gridsync-entrance {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
