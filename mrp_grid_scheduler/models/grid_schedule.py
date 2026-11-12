@@ -33,9 +33,13 @@ def _reason_text(env, status, code):
         ('moved', 'current_outside'): env._('Its current time is outside working hours, the period, its deadline or its dependency order.'),
         ('moved', 'current_conflict'): env._('Its current time overlaps another booking in this proposal.'),
         ('moved', 'current_no_prices'): env._('Its current time has missing price intervals.'),
+        ('moved', 'duration_changed'): env._('Its current booking does not match the expected working time.'),
         ('unchanged', 'lowest'): env._('Its current time is already the lowest-cost time found.'),
+        ('unchanged', 'baseline'): env._('The existing schedule is feasible and no cheaper complete schedule was found.'),
         ('unscheduled', 'no_window'): env._('No working time fits before its deadline or the end of the period.'),
         ('unscheduled', 'conflict'): env._('All suitable working time is already booked.'),
+        ('unscheduled', 'retained_booking'): env._('The suggested time would overlap a booking that has to stay in place.'),
+        ('unscheduled', 'retained_dependency'): env._('The suggested time would finish after a dependent operation that has to stay in place.'),
         ('unscheduled', 'no_prices'): env._('Price intervals are missing for every suitable time.'),
         ('unscheduled', 'predecessor'): env._('An earlier operation could not be scheduled.'),
         ('unscheduled', 'external_unplanned'): env._('It waits for an operation outside this run that has no planned end.'),
@@ -93,8 +97,12 @@ class GridScheduleRun(models.Model):
 
     @api.model_create_multi
     def create(self, values_list):
-        if not self.env.su and any(RESULT_FIELDS.intersection(values) for values in values_list):
-            raise AccessError(_('Proposal results are set by GridSync.'))
+        if not self.env.su:
+            if any(RESULT_FIELDS.intersection(values) for values in values_list):
+                raise AccessError(_('Proposal results are set by GridSync.'))
+            draft = dict.fromkeys(RESULT_FIELDS, False)
+            draft.update(state='draft', line_ids=[])
+            values_list = [dict(values, **draft) for values in values_list]
         return super().create(values_list)
 
     def write(self, values):
@@ -131,7 +139,7 @@ class GridScheduleRun(models.Model):
             raise UserError(_('Choose a period of up to 14 days.'))
         centers = self._check_workcenters()
         workorders = self.env['mrp.workorder'].search([
-            ('workcenter_id', 'in', centers.ids),
+            ('workcenter_id', 'in', centers.ids), ('company_id', '=', self.company_id.id),
             ('state', 'in', ('ready', 'blocked')),
             ('production_id.state', 'in', ('confirmed', 'progress')),
             '|', ('date_start', '=', False), '&', ('date_start', '>=', start), ('date_start', '<', end),
@@ -153,10 +161,10 @@ class GridScheduleRun(models.Model):
             raise UserError(_('Choose at least one work center.'))
         for center in centers:
             tariff = center.grid_tariff_source_id
-            if not center.grid_allow_shift or center.grid_power_kw <= 0 or not tariff.active:
+            if not center.active or not center.grid_allow_shift or center.grid_power_kw <= 0 or not tariff.active:
                 raise UserError(_('Turn on schedule suggestions for %s and give it power and an active tariff.', center.name))
-            if center.company_id != self.company_id:
-                raise UserError(_('%s belongs to another company.', center.name))
+            if center.company_id != self.company_id or tariff.company_id != self.company_id:
+                raise UserError(_('The work center and tariff for %s must belong to the proposal company.', center.name))
             calendar = center.resource_calendar_id
             if not calendar:
                 raise UserError(_('Add working hours to %s before scheduling it.', center.name))
@@ -175,9 +183,10 @@ class GridScheduleRun(models.Model):
         prices = {tariff.id: {} for tariff in tariffs}
         for slot in slots:
             prices[slot.source_id.id][slot.start_utc] = slot.price_per_mwh
-        # Work order bookings and other planned calendar entries stay fixed unless they are in this run.
+        # Only booking times on the selected company's resources are needed.
         leaves = self.env['resource.calendar.leaves'].sudo().search([
-            ('time_type', '=', 'other'), ('date_from', '<', end), ('date_to', '>', start),
+            ('time_type', '=', 'other'), ('company_id', 'in', [False, self.company_id.id]),
+            ('date_from', '<', end), ('date_to', '>', start),
             ('id', 'not in', workorders.leave_id.ids),
             '|', ('resource_id', 'in', centers.resource_id.ids),
             '&', ('resource_id', '=', False), ('calendar_id', 'in', centers.resource_calendar_id.ids),
@@ -256,15 +265,12 @@ class GridScheduleRun(models.Model):
 
     def _save_result(self, start, end, now, workorders, center_inputs, job_inputs, result, notes, sources):
         jobs = {job.key: job for job in job_inputs}
-        conflicts = set(result.conflicts)
         lines = []
         for workorder in workorders:
             item = result.jobs[workorder.id]
             reason = _reason_text(self.env, item.status, item.reason)
             if item.status == 'unscheduled' and workorder.date_start:
                 reason += ' ' + _('It keeps its current time.')
-            if workorder.id in conflicts:
-                reason += ' ' + _('Its current time overlaps this proposal.')
             lines.append({
                 'run_id': self.id, 'workorder_id': workorder.id, 'production_id': workorder.production_id.id,
                 'workcenter_id': workorder.workcenter_id.id, 'operation': workorder.name,
@@ -276,7 +282,7 @@ class GridScheduleRun(models.Model):
                 'proposed_cost': item.proposed.cost if item.proposed else 0,
                 'current_cost': item.current.cost if item.current else 0,
                 'has_current_cost': bool(item.current), 'status': item.status, 'reason_code': item.reason,
-                'reason': reason, 'in_conflict': workorder.id in conflicts,
+                'reason': reason,
             })
         self.env['grid.schedule.line'].sudo().create(lines)
         statuses = [item.status for item in result.jobs.values()]
@@ -331,4 +337,3 @@ class GridScheduleLine(models.Model):
     ], required=True)
     reason_code = fields.Char()
     reason = fields.Char()
-    in_conflict = fields.Boolean('Overlaps proposal')

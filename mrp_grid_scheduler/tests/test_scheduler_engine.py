@@ -140,7 +140,6 @@ class TestSchedulerEngine(BaseCase):
         self.assertEqual(result.jobs[2].status, 'unscheduled')
         placement = result.jobs[1].proposed
         self.assertTrue(placement.end <= at(2) or placement.start >= at(3))
-        self.assertEqual(result.conflicts, ())
 
     def test_tight_successor_goes_first(self):
         # Job 1 would take the cheap hour, but job 2 needs it to meet its successor's deadline.
@@ -151,14 +150,65 @@ class TestSchedulerEngine(BaseCase):
         self.assertEqual(result.jobs[2].proposed.start, at(0, 30))
         self.assertGreaterEqual(result.jobs[1].proposed.start, at(1, 30))
 
-    def test_competing_deadlines_report_kept_booking_conflict(self):
+    def test_competing_deadlines_protect_kept_booking(self):
         result = schedule(DAY, END, [center()], [
             job(1, due=at(1)), job(2, due=at(1), current_start=at(0), current_end=at(1)),
         ])
-        self.assertEqual(result.jobs[1].proposed.start, at(0))
+        self.assertIsNone(result.jobs[1].proposed)
+        self.assertEqual(result.jobs[1].reason, 'retained_booking')
         self.assertEqual((result.jobs[2].status, result.jobs[2].reason), ('unscheduled', 'conflict'))
-        self.assertEqual(result.conflicts, (2,))
         self.assertFalse(result.complete)
+
+    def test_retained_successor_protects_dependency_across_workcenters(self):
+        result = schedule(DAY, END, [
+            center(1, price_map=prices(50, hourly(2, 3, 0))),
+            center(2, price_map={}),
+        ], [
+            job(1, minutes=15, current_start=at(0), current_end=at(0, 15)),
+            job(2, minutes=15, workcenter=2, predecessors=(1,),
+                current_start=at(0, 15), current_end=at(0, 30)),
+        ])
+        self.assertIsNone(result.jobs[1].proposed)
+        self.assertEqual(result.jobs[1].reason, 'retained_dependency')
+        self.assertEqual(result.jobs[2].reason, 'no_prices')
+        self.assertFalse(result.complete)
+
+    def test_higher_cost_or_incomplete_greedy_result_keeps_feasible_baseline(self):
+        jobs = [
+            job(1, minutes=15, current_start=at(0), current_end=at(0, 15)),
+            job(2, minutes=30, current_start=at(0, 15), current_end=at(0, 45)),
+        ]
+        price_map = {at(0): 100, at(0, 15): 0, at(0, 30): 0, at(0, 45): 1000}
+        for end in (at(0, 45), at(1)):
+            with self.subTest(end=end):
+                result = schedule(DAY, end, [center(price_map=price_map)], jobs)
+                self.assertTrue(result.complete)
+                self.assertAlmostEqual(result.proposed_cost, 0.25)
+                self.assertEqual(result.proposed_cost, result.current_cost)
+                self.assertEqual([line.proposed.start for line in result.jobs.values()], [at(0), at(0, 15)])
+                self.assertEqual({line.reason for line in result.jobs.values()}, {'baseline'})
+
+    def test_lower_bound_uses_the_raw_minimum_before_ties(self):
+        data = center(power=1, price_map={at(0): 100.0, at(0, 15): 100.000001})
+        result = schedule(DAY, at(0, 30), [data], [job(1, minutes=15, current_start=at(0, 15))])
+        self.assertEqual(result.jobs[1].proposed.start, at(0))
+        self.assertEqual(result.lower_bound, 0.025)
+        self.assertLess(result.proposed_cost, result.current_cost)
+
+    def test_current_cost_requires_a_feasible_comparable_booking(self):
+        result = schedule(DAY, END, [center()], [
+            job(1, minutes=30, current_start=at(2), current_end=at(2, 15)),
+        ])
+        self.assertTrue(result.complete)
+        self.assertIsNone(result.current_cost)
+        self.assertIsNone(result.jobs[1].current)
+        self.assertEqual((result.jobs[1].status, result.jobs[1].reason), ('moved', 'duration_changed'))
+        self.assertEqual((result.jobs[1].proposed.start, result.jobs[1].proposed.end), (at(2), at(2, 30)))
+
+    def test_duration_longer_than_horizon_is_unscheduled(self):
+        result = schedule(DAY, END, [center()], [job(1, minutes=10**13)])
+        self.assertEqual(result.jobs[1].reason, 'no_window')
+        self.assertIsNone(result.jobs[1].proposed)
 
     def test_lower_bound_with_competition_and_zero_prices(self):
         price_map = prices(50, hourly(1, 2, 0))

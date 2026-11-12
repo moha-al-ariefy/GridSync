@@ -11,6 +11,7 @@ marks, at the start of a working interval or at their current start.
 import bisect
 import heapq
 import math
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -74,7 +75,6 @@ class ScheduleResult:
     current_cost: float
     lower_bound: float
     complete: bool
-    conflicts: tuple
 
 
 def floor_slot(value):
@@ -187,6 +187,9 @@ class _Center:
 def _duration(job):
     if not math.isfinite(job.minutes) or job.minutes < 0:
         raise ScheduleInputError(f'Job {job.key} needs a finite, non-negative duration.')
+    horizon_minutes = MAX_HORIZON.total_seconds() / 60
+    if job.minutes > horizon_minutes:
+        return MAX_HORIZON + MIN_DURATION
     return max(timedelta(seconds=round(job.minutes * 60)), MIN_DURATION)
 
 
@@ -213,7 +216,7 @@ def _evaluate(center, job, duration, low, finish_by, busy):
             continue
         if start == job.current_start:
             current_issue = None
-        key = (round(priced[1], COST_DIGITS), start != job.current_start, start)
+        key = (priced[1], start != job.current_start, start)
         if best_key is None or key < best_key:
             best_key = key
             best = Placement(start, end, priced[0], priced[1])
@@ -252,10 +255,59 @@ def _current_placement(center, job, duration):
     walked = center.walk(job.current_start, duration)
     if not walked:
         return None, 'outside'
+    if job.current_end and walked[0] != job.current_end:
+        return None, 'duration_changed'
     priced = center.price(walked[1])
     if priced is None:
         return None, 'no_prices'
     return Placement(job.current_start, walked[0], priced[0], priced[1]), None
+
+
+def _feasible_baseline(jobs, current, centers, finish_by):
+    """fixed. this returns the existing schedule only when every booking is feasible and priced."""
+    if not jobs or len(finish_by) != len(jobs):
+        return None
+    bookings = {key: list(center.busy) for key, center in centers.items()}
+    baseline = {}
+    for key, job in jobs.items():
+        placement = current[key][0]
+        if (not placement or job.blocked_reason or placement.start < job.release or placement.end > finish_by[key] or
+                _overlaps(bookings[job.workcenter], placement.start, placement.end)):
+            return None
+        baseline[key] = placement
+        bookings[job.workcenter].append((placement.start, placement.end))
+    for key, job in jobs.items():
+        if any(baseline[parent].end > baseline[key].start for parent in job.predecessors):
+            return None
+    return baseline
+
+
+def _protect_retained_bookings(jobs, successors, kept_booking, placed, unscheduled):
+    """fixed. this withdraws unsafe moves, and each withdrawn move can restore another booking."""
+    pending = deque(sorted(unscheduled))
+
+    def retain(key, reason):
+        if key in placed:
+            del placed[key]
+            unscheduled[key] = reason
+            pending.append(key)
+
+    while pending:
+        key = pending.popleft()
+        job = jobs[key]
+        booking = kept_booking(key)
+        if booking:
+            for other, placement in list(placed.items()):
+                if (jobs[other].workcenter == job.workcenter and
+                        placement.start < booking[1] and booking[0] < placement.end):
+                    retain(other, 'retained_booking')
+        if job.current_start:
+            for predecessor in sorted(job.predecessors):
+                placement = placed.get(predecessor)
+                if placement and placement.end > job.current_start:
+                    retain(predecessor, 'retained_dependency')
+        for successor in sorted(successors[key]):
+            retain(successor, 'predecessor')
 
 
 def schedule(horizon_start, horizon_end, workcenters, jobs):
@@ -265,6 +317,8 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
     if len(jobs) > MAX_JOBS:
         raise ScheduleInputError(f'Schedule at most {MAX_JOBS} operations at a time.')
     centers = {data.key: _Center(data, horizon_start, horizon_end) for data in workcenters}
+    if len(centers) != len(workcenters) or len({job.key for job in jobs}) != len(jobs):
+        raise ScheduleInputError('Work centers and operations must have unique IDs.')
     jobs = {job.key: job for job in sorted(jobs, key=lambda job: job.key)}
     durations = {}
     for job in jobs.values():
@@ -288,7 +342,7 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
                     limit = min(limit, latest)
         finish_by[key] = limit
     # Jobs with the tightest latest finish, including their successors' needs, go first.
-    order, _cyclic, _successors = _topological(jobs, finish_by)
+    order, _, _ = _topological(jobs, finish_by)
 
     # Static pass: jobs that cannot run whatever else moves stay where they are.
     fixed = {key: list(center.busy) for key, center in centers.items()}
@@ -310,8 +364,13 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
 
     def kept_booking(key):
         job = jobs[key]
-        end = job.current_end or (current[key][0].end if current[key][0] else None)
-        return (job.current_start, end) if job.current_start and end and end > job.current_start else None
+        if not job.current_start:
+            return None
+        end = job.current_end
+        if not end:
+            walked = centers[job.workcenter].walk(job.current_start, durations[key])
+            end = walked[0] if walked else horizon_end
+        return (job.current_start, end) if end > job.current_start else None
 
     for key in unscheduled:
         if kept_booking(key):
@@ -337,22 +396,25 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             unscheduled[key] = reason
             continue
         placed[key] = best
-        if job.current_start and best.start == job.current_start:
+        if not job.current_start:
+            status, why = 'moved', 'unplanned'
+        elif best.start == job.current_start and (not job.current_end or best.end == job.current_end):
             status, why = 'unchanged', 'lowest'
+        elif current[key][1] == 'duration_changed':
+            status, why = 'moved', 'duration_changed'
         else:
-            status = 'moved'
-            why = 'unplanned' if not job.current_start else 'cheaper' if issue is None else f'current_{issue}'
+            status, why = 'moved', f'current_{issue}' if issue else 'cheaper'
         results[key] = (status, why)
 
-    conflicts = []
-    for key in sorted(unscheduled):
-        job = jobs[key]
-        booking = kept_booking(key)
-        if booking and any(
-            jobs[other].workcenter == job.workcenter and placement.start < booking[1] and booking[0] < placement.end
-            for other, placement in placed.items()
-        ):
-            conflicts.append(key)
+    _protect_retained_bookings(jobs, successors, kept_booking, placed, unscheduled)
+    proposed_cost = math.fsum(placement.cost for placement in placed.values())
+    baseline = _feasible_baseline(jobs, current, centers, finish_by)
+    current_cost = math.fsum(placement.cost for placement in baseline.values()) if baseline else None
+    if baseline and (unscheduled or (proposed_cost >= current_cost and placed != baseline)):
+        placed = baseline
+        unscheduled = {}
+        proposed_cost = current_cost
+        results = {key: ('unchanged', 'baseline') for key in baseline}
 
     job_results = {}
     for key, job in jobs.items():
@@ -364,14 +426,10 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             job_results[key] = JobResult(key, status, why, placed[key], current_booking, current_issue)
 
     complete = not unscheduled
-    proposed_cost = sum(placement.cost for placement in placed.values())
-    current_cost = None
-    if complete and all(current[key][0] for key in jobs):
-        current_cost = sum(current[key][0].cost for key in jobs)
-    lower_bound = sum(bounds[key] for key in jobs) if complete and jobs else None
+    lower_bound = math.fsum(bounds[key] for key in jobs) if complete and jobs else None
     if lower_bound is not None and lower_bound > proposed_cost + 10 ** -COST_DIGITS * max(1, len(jobs)):
         raise AssertionError('The lower bound exceeds the proposed cost.')
-    return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete, tuple(conflicts))
+    return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete)
 
 
 def _iso(value):
