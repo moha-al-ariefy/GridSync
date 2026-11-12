@@ -38,7 +38,7 @@ class TestEnergyChartsParser(TransactionCase):
 
     def test_rejects_bad_data_and_unverified_licenses(self):
         payload = self.payload([self.row('2026-11-12T00:00:00+01:00', 12)])
-        for field, value in [('bidding_zone', 'FR'), ('unit', 'EUR/kWh'),
+        for field, value in [('bidding_zone', 'FR'), ('unit', 'EUR/kWh'), ('unit', None),
                              ('interval_minutes', 60), ('license', 'private use only')]:
             invalid = dict(payload, **{field: value})
             with self.subTest(field=field), self.assertRaises(PriceDataError):

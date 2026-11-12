@@ -12,6 +12,7 @@ from ..services.energy_charts import PriceDataError, parse_prices
 
 ENERGY_CHARTS_URL = 'https://api.energy-charts.info/v2/price'
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+AUTO_SYNC_INTERVAL = timedelta(minutes=5)
 
 
 class GridTariffSource(models.Model):
@@ -93,19 +94,58 @@ class GridTariffSource(models.Model):
             raise AccessError(_('Only a GridSync manager can sync prices.'))
         if self.source_type != 'energy_charts':
             raise UserError(_('This source is not an Energy-Charts source.'))
+        message, level = self._sync_energy_charts()
+        if level == 'busy':
+            raise UserError(message)
+        return self._sync_notice(message, level)
+
+    @api.model
+    def refresh_energy_charts(self, source_id=None):
+        if not self.env.user.has_group('mrp_grid_scheduler.group_grid_planner'):
+            raise AccessError(_('Only GridSync users can refresh prices.'))
+        domain = [('active', '=', True), ('source_type', '=', 'energy_charts')]
+        if source_id is not None:
+            if type(source_id) is not int:
+                raise UserError(_('Select a valid tariff source.'))
+            domain.append(('id', '=', source_id))
+        sources = self.search(domain)
+        return sources.sudo()._refresh_due_energy_charts()
+
+    @api.model
+    def _cron_sync_energy_charts(self):
+        self.sudo().search([
+            ('active', '=', True), ('source_type', '=', 'energy_charts'),
+            ('company_id.grid_auto_sync', '=', True),
+        ])._refresh_due_energy_charts()
+
+    def _refresh_due_energy_charts(self):
+        if not self:
+            return False
+        _, level = self._sync_energy_charts(automatic=True)
+        return level == 'success'
+
+    def _sync_energy_charts(self, automatic=False):
         self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s)', [510884413214])
         if not self.env.cr.fetchone()[0]:
-            raise UserError(_('Another price sync is running. Try again shortly.'))
+            return _('Another price sync is running. Try again shortly.'), 'busy'
         now = fields.Datetime.now()
+        if automatic:
+            self = self.filtered_domain([
+                ('active', '=', True), ('source_type', '=', 'energy_charts'),
+                ('company_id.grid_auto_sync', '=', True),
+                ('sync_ids', 'not any', [('started_at', '>', now - AUTO_SYNC_INTERVAL)]),
+            ])
+            if not self:
+                return '', 'skipped'
         # The API limit applies across companies.
         logs = self.env['grid.tariff.sync'].sudo()
         previous = logs.search([('provider_type', '=', 'energy_charts')], order='started_at desc, id desc', limit=1)
         if previous and previous.next_allowed_at and previous.next_allowed_at > now:
-            raise UserError(_('Please wait before requesting prices again.'))
-        log = logs.create({
-            'source_id': self.id, 'provider_type': 'energy_charts', 'started_at': now,
+            return _('Please wait before requesting prices again.'), 'busy'
+        logs = logs.create([{
+            'source_id': source.id, 'provider_type': 'energy_charts', 'started_at': now,
             'next_allowed_at': now + timedelta(seconds=30), 'state': 'failed',
-        })
+        } for source in self])
         try:
             with requests.get(
                 ENERGY_CHARTS_URL, params={'bzn': 'DE-LU'}, stream=True,
@@ -115,8 +155,8 @@ class GridTariffSource(models.Model):
                 if response.status_code == 429:
                     retry = response.headers.get('Retry-After', '')
                     seconds = min(max(int(retry), 30), 3600) if retry.isdigit() else 60
-                    log.write({'next_allowed_at': now + timedelta(seconds=seconds), 'message': 'Rate limit reached.'})
-                    return self._sync_notice(_('The data provider asked GridSync to wait before trying again.'), 'warning')
+                    logs.write({'next_allowed_at': now + timedelta(seconds=seconds), 'message': 'Rate limit reached.'})
+                    return _('The data provider asked GridSync to wait before trying again.'), 'warning'
                 if response.status_code != 200:
                     raise PriceDataError('The data provider returned an unsuccessful response.')
                 body = bytearray()
@@ -125,30 +165,41 @@ class GridTariffSource(models.Model):
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise PriceDataError('The data response is too large.')
                 parsed = parse_prices(json.loads(body))
-            with self.env.cr.savepoint():
-                slot_model = self.env['grid.tariff.slot'].sudo()
-                existing = slot_model.search([('source_id', '=', self.id), ('start_utc', 'in', [x[0] for x in parsed['slots']])])
-                existing_by_start = {slot.start_utc: slot for slot in existing}
-                inserted = updated = 0
-                for start, price in parsed['slots']:
-                    if start in existing_by_start:
-                        existing_by_start[start].write({'price_per_mwh': price, 'is_current': True, 'observed_at': now})
-                        updated += 1
-                    else:
-                        slot_model.create({'source_id': self.id, 'start_utc': start, 'price_per_mwh': price, 'observed_at': now})
-                        inserted += 1
-                if parsed['missing_starts']:
-                    slot_model.search([('source_id', '=', self.id), ('start_utc', 'in', parsed['missing_starts'])]).write({'is_current': False})
-                self.sudo().write({
-                    'last_sync_at': now, 'generated_at': parsed['generated_at'],
-                    'license_text': parsed['license'],
-                    'attribution': 'Energy-Charts.info, Bundesnetzagentur | SMARD.de, CC BY 4.0',
-                })
-            log.write({'state': 'success', 'inserted': inserted, 'updated': updated, 'missing': parsed['missing']})
         except (requests.RequestException, ValueError, UnicodeError, PriceDataError):
-            log.write({'message': 'The price data could not be fetched or validated.'})
-            return self._sync_notice(_('Price sync failed. The previous data is still available.'), 'danger')
-        return self._sync_notice(_('Price sync completed. Check the intervals and data age.'), 'success')
+            logs.write({'message': 'The price data could not be fetched or validated.'})
+            return _('Price sync failed. The previous data is still available.'), 'danger'
+        for log in logs:
+            log.source_id._save_energy_charts_prices(parsed, log)
+        return _('Price sync completed.'), 'success'
+
+    def _save_energy_charts_prices(self, parsed, log):
+        now = log.started_at
+        slots = self.env['grid.tariff.slot'].sudo()
+        existing = slots.search([
+            ('source_id', '=', self.id), ('start_utc', 'in', [start for start, _ in parsed['slots']]),
+        ])
+        existing_by_start = {slot.start_utc: slot for slot in existing}
+        new_slots = []
+        for start, price in parsed['slots']:
+            values = {'price_per_mwh': price, 'is_current': True, 'observed_at': now}
+            if start in existing_by_start:
+                existing_by_start[start].write(values)
+            else:
+                new_slots.append({'source_id': self.id, 'start_utc': start, **values})
+        slots.create(new_slots)
+        if parsed['missing_starts']:
+            slots.search([
+                ('source_id', '=', self.id), ('start_utc', 'in', parsed['missing_starts']),
+            ]).write({'is_current': False})
+        self.sudo().write({
+            'last_sync_at': now, 'generated_at': parsed['generated_at'],
+            'license_text': parsed['license'],
+            'attribution': 'Energy-Charts.info, Bundesnetzagentur | SMARD.de, CC BY 4.0',
+        })
+        log.write({
+            'state': 'success', 'inserted': len(new_slots),
+            'updated': len(existing), 'missing': parsed['missing'],
+        })
 
     def _sync_notice(self, message, level):
         return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {

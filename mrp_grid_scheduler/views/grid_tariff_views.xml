@@ -4,7 +4,7 @@
         <field name="name">grid.tariff.source.list</field>
         <field name="model">grid.tariff.source</field>
         <field name="arch" type="xml">
-            <list>
+            <list js_class="grid_tariff_list">
                 <field name="name"/>
                 <field name="source_type"/>
                 <field name="currency_id"/>
@@ -17,7 +17,7 @@
         <field name="name">grid.tariff.source.form</field>
         <field name="model">grid.tariff.source</field>
         <field name="arch" type="xml">
-            <form string="Tariff Source">
+            <form string="Tariff Source" js_class="grid_tariff_form">
                 <header>
                     <button name="action_sync_energy_charts" type="object" string="Sync prices" class="btn-primary" groups="mrp_grid_scheduler.group_grid_manager" invisible="source_type != 'energy_charts' or not id"/>
                 </header>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_grid_config_settings" model="ir.ui.view">
+        <field name="name">res.config.settings.grid.sync</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app name="mrp_grid_scheduler" string="GridSync" groups="base.group_system">
+                    <block title="Electricity prices">
+                        <setting id="grid_tariff_auto_sync" company_dependent="1"
+                                 help="Check Energy-Charts prices every five minutes and when Tariffs opens. GridSync managers can also sync manually.">
+                            <field name="grid_auto_sync"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+    <record id="action_grid_config_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="context">{'module': 'mrp_grid_scheduler', 'bin_size': False}</field>
+    </record>
+    <menuitem id="menu_grid_settings" name="Settings" parent="menu_grid_root"
+              action="action_grid_config_settings" groups="base.group_system" sequence="90"/>
+</odoo>

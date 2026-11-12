@@ -23,7 +23,8 @@ def parse_prices(payload):
         raise PriceDataError('The response is not an object.')
     if payload.get('endpoint') != 'price' or payload.get('bidding_zone') != 'DE-LU':
         raise PriceDataError('The response is not for the DE-LU price market.')
-    if payload.get('unit', '').replace(' ', '') != 'EUR/MWh':
+    unit = payload.get('unit')
+    if not isinstance(unit, str) or unit.replace(' ', '') != 'EUR/MWh':
         raise PriceDataError('The response has an unexpected currency or unit.')
     if payload.get('interval_minutes') != 15 or payload.get('deprecated') is not False:
         raise PriceDataError('The response has an unsupported interval or endpoint status.')

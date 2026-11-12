@@ -9,12 +9,15 @@
         'security/ir.model.access.csv',
         'views/grid_site_views.xml',
         'views/grid_tariff_views.xml',
+        'views/res_config_settings_views.xml',
+        'data/grid_tariff_cron.xml',
     ],
     'assets': {
         'web.assets_backend': [
             'mrp_grid_scheduler/static/src/scss/grid_sync.scss',
             'mrp_grid_scheduler/static/src/guide/grid_guide.js',
             'mrp_grid_scheduler/static/src/guide/grid_guide.xml',
+            'mrp_grid_scheduler/static/src/tariffs/tariff_views.js',
         ],
     },
     'application': True,

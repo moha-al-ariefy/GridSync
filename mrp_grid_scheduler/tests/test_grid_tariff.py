@@ -102,3 +102,44 @@ class TestGridTariff(TransactionCase):
             self.source.with_user(self.manager).action_sync_energy_charts()
         self.assertFalse(slot.is_current)
         self.assertEqual(len(self.env['grid.tariff.slot'].search([('source_id', '=', self.source.id)])), 2)
+
+    def test_auto_sync_respects_company_and_keeps_manual_sync_available(self):
+        self.assertTrue(self.company.grid_auto_sync)
+        self.assertTrue(self.other_company.grid_auto_sync)
+        other = self.source.sudo().copy({'company_id': self.other_company.id})
+        sources = self.env['grid.tariff.source'].with_user(self.planner)
+        get_path = 'odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get'
+        with patch(get_path) as get:
+            self.assertFalse(sources.refresh_energy_charts(other.id))
+            get.assert_not_called()
+            settings = self.env['res.config.settings'].create({
+                'company_id': self.company.id, 'grid_auto_sync': False,
+            })
+            self.assertFalse(settings.company_id.grid_auto_sync)
+            self.assertTrue(self.other_company.grid_auto_sync)
+            self.assertFalse(sources.refresh_energy_charts())
+            get.assert_not_called()
+            get.return_value.__enter__.return_value.status_code = 503
+            self.source.with_user(self.manager).action_sync_energy_charts()
+            get.assert_called_once()
+        with self.assertRaises(AccessError):
+            sources.with_user(self.outsider).refresh_energy_charts()
+
+    def test_cron_batches_sources_and_page_open_reuses_recent_attempt(self):
+        other = self.source.sudo().copy({'company_id': self.other_company.id})
+        model = self.env['grid.tariff.source']
+        job = self.env.ref('mrp_grid_scheduler.ir_cron_grid_tariff_refresh')
+        self.assertTrue(job.active)
+        self.assertEqual((job.interval_number, job.interval_type), (5, 'minutes'))
+        get_path = 'odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get'
+        with patch(get_path) as get:
+            get.return_value.__enter__.return_value.status_code = 503
+            with self.enter_registry_test_mode():
+                self.assertIs(job.method_direct_trigger(), True)
+            self.assertEqual(len((self.source.sudo() | other).sync_ids), 2)
+            self.assertFalse(model.with_user(self.planner).refresh_energy_charts(self.source.id))
+            get.assert_called_once()
+        (self.source.sudo() | other).sync_ids.write({'next_allowed_at': '2026-01-01 00:00:00'})
+        with patch(get_path) as get:
+            model._cron_sync_energy_charts()
+            get.assert_not_called()
