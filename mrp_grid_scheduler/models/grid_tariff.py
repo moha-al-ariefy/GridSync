@@ -24,7 +24,8 @@ class GridTariffSource(models.Model):
     name = fields.Char(required=True)
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
     source_type = fields.Selection([
-        ('manual', 'Manual'), ('energy_charts', 'Energy-Charts DE-LU'),
+        ('manual', 'Manual intervals'), ('manual_tou', 'Time-of-use rules'),
+        ('csv', 'CSV import'), ('energy_charts', 'Energy-Charts DE-LU'),
     ], required=True, default='manual')
     currency_id = fields.Many2one('res.currency', required=True, default=lambda self: self.env.company.currency_id)
     timezone = fields.Char(required=True, default='Asia/Dubai')
@@ -244,21 +245,21 @@ class GridTariffSlot(models.Model):
                 values.setdefault('source_id', default_source)
                 values.update({'is_current': True, 'observed_at': False})
             sources = self.env['grid.tariff.source'].browse([v.get('source_id') for v in values_list if v.get('source_id')])
-            if any(source.source_type == 'energy_charts' for source in sources):
-                raise AccessError(_('Energy-Charts intervals can only be changed by syncing the source.'))
+            if any(source.source_type != 'manual' for source in sources):
+                raise AccessError(_('Edit these prices by loading them from their source.'))
         return super().create(values_list)
 
     def write(self, values):
         if not self.env.su and {'is_current', 'observed_at'}.intersection(values):
             raise AccessError(_('Interval status can only be changed by a sync.'))
-        if not self.env.su and (self.filtered(lambda s: s.source_id.source_type == 'energy_charts') or
-                                (values.get('source_id') and self.env['grid.tariff.source'].browse(values['source_id']).source_type == 'energy_charts')):
-            raise AccessError(_('Energy-Charts intervals can only be changed by syncing the source.'))
+        if not self.env.su and (self.filtered(lambda s: s.source_id.source_type != 'manual') or
+                                (values.get('source_id') and self.env['grid.tariff.source'].browse(values['source_id']).source_type != 'manual')):
+            raise AccessError(_('Edit these prices by loading them from their source.'))
         return super().write(values)
 
     def unlink(self):
-        if not self.env.su and self.filtered(lambda s: s.source_id.source_type == 'energy_charts'):
-            raise AccessError(_('Energy-Charts intervals can only be changed by syncing the source.'))
+        if not self.env.su and self.filtered(lambda s: s.source_id.source_type != 'manual'):
+            raise AccessError(_('Edit these prices by loading them from their source.'))
         return super().unlink()
 
 
@@ -269,7 +270,9 @@ class GridTariffSync(models.Model):
 
     source_id = fields.Many2one('grid.tariff.source', required=True, ondelete='restrict', index=True)
     company_id = fields.Many2one(related='source_id.company_id', store=True, index=True)
-    provider_type = fields.Selection([('energy_charts', 'Energy-Charts')], required=True)
+    provider_type = fields.Selection([
+        ('energy_charts', 'Energy-Charts'), ('manual_tou', 'Time-of-use rules'), ('csv', 'CSV import'),
+    ], required=True)
     started_at = fields.Datetime(required=True)
     next_allowed_at = fields.Datetime(required=True)
     state = fields.Selection([('success', 'Success'), ('failed', 'Failed')], required=True)

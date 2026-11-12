@@ -50,3 +50,17 @@ class TestEnergyChartsParser(TransactionCase):
             parse_prices(self.payload([row, row]))
         with self.assertRaises(PriceDataError):
             parse_prices(self.payload([self.row('2026-11-12T00:00:00', 12)]))
+
+    def test_omitted_quarter_hour_is_missing(self):
+        result = parse_prices(self.payload([
+            self.row('2026-11-12T00:00:00+01:00', 10),
+            self.row('2026-11-12T00:30:00+01:00', 12),
+        ]))
+        self.assertEqual(result['missing_starts'], [datetime(2026, 11, 11, 23, 15)])
+
+    def test_rejects_numbers_and_offsets_outside_storage_range(self):
+        for timestamp, price in [('2026-11-12T00:00:00Z', 10**400),
+                                 ('2026-11-12T00:00:00Z', 10_000_000_000),
+                                 ('0001-01-01T00:00:00+01:00', 12)]:
+            with self.subTest(timestamp=timestamp, price=price), self.assertRaises(PriceDataError):
+                parse_prices(self.payload([self.row(timestamp, price)]))

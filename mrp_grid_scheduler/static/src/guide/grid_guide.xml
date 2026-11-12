@@ -32,14 +32,33 @@
                         <div>
                             <h2 id="grid-price-heading" t-esc="source.name"/>
                             <p t-if="source.source_type === 'energy_charts'" class="o_gridsync_meta">
-                                Day-ahead wholesale · <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
+                                Published day-ahead wholesale · <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
                                 <t t-else="">Awaiting first sync</t>
+                            </p>
+                            <p t-elif="source.source_type === 'manual_tou'" class="o_gridsync_meta">
+                                From time-of-use rules<t t-if="source.last_sync_at"> · Generated <t t-esc="dateTime(source.last_sync_at)"/></t>
+                            </p>
+                            <p t-elif="source.source_type === 'csv'" class="o_gridsync_meta">
+                                <t t-if="source.csv_price_basis === 'forecast'">CSV forecast</t>
+                                <t t-elif="source.csv_price_basis === 'actual'">CSV actual prices</t>
+                                <t t-else="">Supplied CSV prices</t>
+                                <t t-if="source.last_sync_at"> · Imported <t t-esc="dateTime(source.last_sync_at)"/></t>
                             </p>
                             <p t-else="" class="o_gridsync_meta">Manually entered tariff</p>
                         </div>
                         <button type="button" class="btn btn-primary" t-on-click="openSource">Open tariff</button>
                     </div>
                     <p t-if="state.refreshFailed" role="status">Automatic refresh is unavailable. Showing stored data.</p>
+                    <p t-if="source.profile_dirty &amp;&amp; source.last_sync_at" class="alert alert-warning" role="status">
+                        Rules or dates changed. Generate intervals again before using those prices.
+                    </p>
+                    <p t-if="state.lastLoad?.state === 'failed'" class="alert alert-warning" role="status">
+                        The last refresh failed. Previously stored prices are still available.
+                    </p>
+                    <p t-elif="oldMarketSync" class="o_gridsync_meta">Last successful refresh was over 15 minutes ago.</p>
+                    <p t-if="state.lastLoad?.missing || intervalGap" class="o_gridsync_meta">
+                        Some intervals are missing. Check load history or open the full tariff for details.
+                    </p>
                     <p t-if="state.loading" role="status">Loading intervals…</p>
                     <p t-elif="state.failed" role="status">Price intervals could not be loaded. Select the source to try again.</p>
                     <p t-elif="!state.slots.length" role="status">This source has no price intervals yet.</p>

@@ -1,5 +1,5 @@
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 
 class PriceDataError(ValueError):
@@ -15,7 +15,10 @@ def _utc_datetime(value):
         raise PriceDataError('A timestamp is invalid.') from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise PriceDataError('A timestamp has no timezone.')
-    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    try:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    except OverflowError as exc:
+        raise PriceDataError('A timestamp is outside the supported UTC range.') from exc
 
 
 def parse_prices(payload):
@@ -49,11 +52,23 @@ def parse_prices(payload):
         if price is None:
             missing_starts.append(start)
             continue
-        if isinstance(price, bool) or not isinstance(price, (int, float)) or not math.isfinite(price):
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
             raise PriceDataError('A price is not a finite number.')
-        slots.append((start, float(price)))
+        try:
+            price = float(price)
+        except OverflowError as exc:
+            raise PriceDataError('A price is outside the supported range.') from exc
+        if not math.isfinite(price) or abs(price) >= 10_000_000_000:
+            raise PriceDataError('A price is outside the supported range.')
+        slots.append((start, price))
     if not slots:
         raise PriceDataError('The response contains no prices.')
+    first, last = min(seen), max(seen)
+    step = timedelta(minutes=15)
+    if last - first >= timedelta(hours=25):
+        raise PriceDataError('The response spans more than one market day.')
+    missing_starts.extend(first + offset * step for offset in range((last - first) // step + 1)
+                          if first + offset * step not in seen)
     return {
         'generated_at': generated_at,
         'license': license_text,

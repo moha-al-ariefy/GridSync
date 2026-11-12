@@ -1,6 +1,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+from requests.exceptions import ConnectionError
+
 from odoo import Command
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
@@ -102,6 +104,16 @@ class TestGridTariff(TransactionCase):
             self.source.with_user(self.manager).action_sync_energy_charts()
         self.assertFalse(slot.is_current)
         self.assertEqual(len(self.env['grid.tariff.slot'].search([('source_id', '=', self.source.id)])), 2)
+
+        source = self.source.with_user(self.manager)
+        last_sync = source.last_sync_at
+        saved = source.slot_ids.sorted('start_utc').mapped('price_per_mwh')
+        source.sync_ids.sudo().write({'next_allowed_at': '2026-01-01 00:00:00'})
+        with patch('odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get', side_effect=ConnectionError):
+            source.action_sync_energy_charts()
+        self.assertEqual(source.last_sync_at, last_sync)
+        self.assertEqual(source.slot_ids.sorted('start_utc').mapped('price_per_mwh'), saved)
+        self.assertEqual(source.sync_ids.sorted('id', reverse=True)[0].state, 'failed')
 
     def test_auto_sync_respects_company_and_keeps_manual_sync_available(self):
         self.assertTrue(self.company.grid_auto_sync)

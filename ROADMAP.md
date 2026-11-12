@@ -1,6 +1,6 @@
 # GridSync MRP - Development Roadmap
 
-GridSync is still in the planning stage. The goal is a working Odoo manufacturing app for the hackathon. Production readiness comes later, after proper testing and validation.
+GridSync runs on Odoo 19. The tariff inputs are ready for the scheduler phase.
 
 ## 0. Get Odoo ready
 
@@ -33,6 +33,8 @@ GridSync is still in the planning stage. The goal is a working Odoo manufacturin
 - Cache the data and show clear errors when it is old, missing or unavailable. Make imports and refreshes safe to repeat.
 
 **Done when:** a planner can see real, permitted electricity prices in Odoo, check their source and spot any missing intervals.
+
+**Phase 2 check.** The live DE-LU feed, time-of-use rules, and CSV import all use the same 15-minute price intervals. The historical TAQA tariff check generated seven days from the published 2025 rates. See [local setup](docs/LOCAL_SETUP.md) for the source and import format.
 
 ## 3. Build the scheduler
 
