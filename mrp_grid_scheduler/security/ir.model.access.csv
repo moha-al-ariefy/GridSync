@@ -1,3 +1,8 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_grid_site_planner,grid.site planner,model_grid_site,group_grid_planner,1,1,1,0
 access_grid_site_manager,grid.site manager,model_grid_site,group_grid_manager,1,1,1,1
+access_grid_source_planner,grid.tariff.source planner,model_grid_tariff_source,group_grid_planner,1,0,0,0
+access_grid_source_manager,grid.tariff.source manager,model_grid_tariff_source,group_grid_manager,1,1,1,1
+access_grid_slot_planner,grid.tariff.slot planner,model_grid_tariff_slot,group_grid_planner,1,0,0,0
+access_grid_slot_manager,grid.tariff.slot manager,model_grid_tariff_slot,group_grid_manager,1,1,1,1
+access_grid_sync_planner,grid.tariff.sync planner,model_grid_tariff_sync,group_grid_planner,1,0,0,0

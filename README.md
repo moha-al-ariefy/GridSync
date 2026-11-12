@@ -6,7 +6,7 @@ The UAE use case will use applicable published or customer-provided tariffs. A G
 
 ## Status
 
-The Odoo add-on foundation is in development. It provides site setup and access controls; the data providers and scheduler haven't been built yet, so there are no verified savings or emissions results.
+The add-on is in development. It includes site setup, a getting-started guide, access controls and a manual sync for Germany-Luxembourg day-ahead prices. These are wholesale market prices, not a factory's electricity bill. Tariff profiles and the scheduler are still being built, so there are no verified savings or emissions results.
 
 The [roadmap](ROADMAP.md) covers the build order. The [build plan](docs/GridSync_Build_Plan.pdf) has the original idea and priorities, and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) has the technical details and things to verify. See [local setup](docs/LOCAL_SETUP.md) for development and test instructions.
 

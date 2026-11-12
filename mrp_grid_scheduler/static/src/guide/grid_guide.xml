@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="mrp_grid_scheduler.GridGuide">
+        <main class="o_gridsync_guide">
+            <div class="o_gridsync_guide_inner">
+                <header class="o_gridsync_guide_header">
+                    <span class="o_gridsync_eyebrow">GRIDSYNC MRP</span>
+                    <h1>Let's get started.</h1>
+                    <p>Set up a site and connect its work centers to get the basics ready.</p>
+                    <button type="button" class="btn o_gridsync_primary" t-on-click="openSites">Open sites <span aria-hidden="true">→</span></button>
+                </header>
+                <section aria-labelledby="grid-steps-title" class="o_gridsync_steps">
+                    <div class="o_gridsync_section_heading">
+                        <span class="o_gridsync_eyebrow">THE FIRST STEPS</span>
+                        <h2 id="grid-steps-title">Start with the basics</h2>
+                    </div>
+                    <ol class="o_gridsync_step_list">
+                        <li><span class="o_gridsync_number">01</span><div><h3>Add a site</h3><p>Give the factory or production site a name and choose its company.</p></div></li>
+                        <li><span class="o_gridsync_number">02</span><div><h3>Connect work centers</h3><p>Select the work centers that belong to the site.</p></div></li>
+                        <li><span class="o_gridsync_number">03</span><div><h3>Set up production</h3><p>Create manufacturing orders and work orders in Odoo Manufacturing.</p></div></li>
+                    </ol>
+                </section>
+                <aside class="o_gridsync_next">
+                    <span class="o_gridsync_next_tag">COMING NEXT</span>
+                    <div><h2>Prices and scheduling</h2><p>Tariff data and schedule suggestions are still being built.</p></div>
+                </aside>
+            </div>
+        </main>
+    </t>
+</templates>

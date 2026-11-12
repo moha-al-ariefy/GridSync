@@ -1,4 +1,5 @@
-from odoo import fields, models
+from odoo import _, fields, models
+from odoo.exceptions import AccessError
 
 
 class GridSite(models.Model):
@@ -19,3 +20,8 @@ class GridSite(models.Model):
     _name_company_unique = models.Constraint(
         'UNIQUE(name, company_id)', 'A site with this name already exists in this company.',
     )
+
+    def write(self, values):
+        if not self.env.su and values.get('company_id') and values['company_id'] not in self.env.companies.ids:
+            raise AccessError(_('The selected company is not available to this user.'))
+        return super().write(values)

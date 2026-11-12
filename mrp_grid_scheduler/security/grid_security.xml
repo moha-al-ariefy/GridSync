@@ -20,4 +20,19 @@
         <field name="model_id" ref="model_grid_site"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="rule_grid_tariff_source_company" model="ir.rule">
+        <field name="name">GridSync tariff sources by company</field>
+        <field name="model_id" ref="model_grid_tariff_source"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_grid_tariff_slot_company" model="ir.rule">
+        <field name="name">GridSync price intervals by company</field>
+        <field name="model_id" ref="model_grid_tariff_slot"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_grid_tariff_sync_company" model="ir.rule">
+        <field name="name">GridSync sync logs by company</field>
+        <field name="model_id" ref="model_grid_tariff_sync"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

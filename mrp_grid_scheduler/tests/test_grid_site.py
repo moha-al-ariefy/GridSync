@@ -48,6 +48,8 @@ class TestGridSite(TransactionCase):
         with self.assertRaises(AccessError):
             sites.browse(self.site_b.id).write({'name': 'Not allowed'})
         with self.assertRaises(AccessError):
+            sites.browse(self.site_a.id).write({'company_id': self.company_b.id})
+        with self.assertRaises(AccessError):
             sites.create({'name': 'Wrong company', 'company_id': self.company_b.id})
 
     def test_manager_can_delete_site(self):

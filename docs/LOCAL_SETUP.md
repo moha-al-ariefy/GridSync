@@ -25,4 +25,6 @@ On a new test database, install with `-i mrp_grid_scheduler --without-demo=all -
 
 Give a manufacturing user the GridSync Planner role, or use the GridSync Manager role for site administration. Open GridSync, create a site and select its work centers. Planner access is limited to allowed companies; only a manager can delete a site.
 
-This version is the foundation only. It does not fetch electricity prices or change manufacturing schedules yet.
+Under Tariffs, a GridSync Manager can add an Energy-Charts DE-LU source and select **Sync prices**. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
+
+The DE-LU feed is a wholesale day-ahead market price, not a UAE tariff or a customer's electricity bill. Manual intervals can be entered with their source reference; recurring tariff rules, CSV import, automatic syncing and production scheduling are still being built. Price data is never used to change work orders in this version.
