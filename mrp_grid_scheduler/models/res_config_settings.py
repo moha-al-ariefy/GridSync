@@ -4,7 +4,9 @@ from odoo import fields, models
 class ResCompany(models.Model):
     _inherit = 'res.company'
 
-    grid_auto_sync = fields.Boolean(string='Automatic tariff sync', default=True)
+    grid_auto_sync = fields.Boolean(
+        string='Automatic tariff sync', default=True, groups='base.group_system',
+    )
 
 
 class ResConfigSettings(models.TransientModel):

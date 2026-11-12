@@ -227,6 +227,10 @@ class GridTariffSlot(models.Model):
     _source_start_unique = models.Constraint('UNIQUE(source_id, start_utc)', 'This source already has an interval at this time.')
     _duration_fixed = models.Constraint('CHECK(minutes = 15)', 'Price intervals must be 15 minutes.')
 
+    def _check_interval_metadata(self, values):
+        if not self.env.su and {'company_id', 'currency_id', 'is_current', 'observed_at'}.intersection(values):
+            raise AccessError(_('Interval metadata is set by GridSync.'))
+
     @api.constrains('start_utc', 'price_per_mwh')
     def _check_interval(self):
         for slot in self:
@@ -238,8 +242,12 @@ class GridTariffSlot(models.Model):
     @api.model_create_multi
     def create(self, values_list):
         if not self.env.su:
-            if any({'is_current', 'observed_at'}.intersection(values) for values in values_list):
-                raise AccessError(_('Interval status can only be changed by a sync.'))
+            for values in values_list:
+                self._check_interval_metadata(values)
+            context = dict(self.env.context)
+            context.pop('default_company_id', None)
+            context.pop('default_currency_id', None)
+            self = self.with_context(context)
             default_source = self.default_get(['source_id']).get('source_id')
             for values in values_list:
                 values.setdefault('source_id', default_source)
@@ -250,8 +258,7 @@ class GridTariffSlot(models.Model):
         return super().create(values_list)
 
     def write(self, values):
-        if not self.env.su and {'is_current', 'observed_at'}.intersection(values):
-            raise AccessError(_('Interval status can only be changed by a sync.'))
+        self._check_interval_metadata(values)
         if not self.env.su and (self.filtered(lambda s: s.source_id.source_type != 'manual') or
                                 (values.get('source_id') and self.env['grid.tariff.source'].browse(values['source_id']).source_type != 'manual')):
             raise AccessError(_('Edit these prices by loading them from their source.'))

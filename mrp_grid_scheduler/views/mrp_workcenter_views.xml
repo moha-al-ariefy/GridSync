@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_workcenter_form_grid_energy" model="ir.ui.view">
+        <field name="name">mrp.workcenter.form.grid.energy</field>
+        <field name="model">mrp.workcenter</field>
+        <field name="inherit_id" ref="mrp.mrp_workcenter_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook/page[@name='general_info']" position="after">
+                <page string="Electricity" name="grid_energy" groups="mrp_grid_scheduler.group_grid_planner">
+                    <field name="grid_energy_can_edit" invisible="1"/>
+                    <group>
+                        <group>
+                            <field name="grid_power_kw" readonly="not grid_energy_can_edit"/>
+                            <field name="grid_power_reference" readonly="not grid_energy_can_edit"/>
+                        </group>
+                        <group>
+                            <field name="grid_tariff_source_id" readonly="not grid_energy_can_edit"
+                                   domain="[('company_id', '=', company_id), ('active', '=', True)]"
+                                   options="{'no_create': True}"/>
+                            <field name="grid_allow_shift" readonly="not grid_energy_can_edit"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_workcenter_list_grid_energy" model="ir.ui.view">
+        <field name="name">mrp.workcenter.list.grid.energy</field>
+        <field name="model">mrp.workcenter</field>
+        <field name="inherit_id" ref="mrp.mrp_workcenter_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='name']" position="after">
+                <field name="grid_power_kw" optional="hide"/>
+                <field name="grid_tariff_source_id" optional="hide"/>
+                <field name="grid_allow_shift" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="action_grid_workcenters" model="ir.actions.act_window">
+        <field name="name">Work centers</field>
+        <field name="res_model">mrp.workcenter</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <menuitem id="menu_grid_workcenters" name="Work centers" parent="menu_grid_root"
+              action="action_grid_workcenters" groups="group_grid_planner" sequence="15"/>
+</odoo>

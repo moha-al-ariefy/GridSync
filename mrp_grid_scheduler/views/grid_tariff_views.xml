@@ -39,7 +39,7 @@
                         </div>
                     </div>
                     <field name="profile_dirty" invisible="1"/>
-                    <p class="alert alert-warning" invisible="not profile_dirty or not last_sync_at">
+                    <p class="alert alert-warning" role="status" invisible="not profile_dirty or not last_sync_at">
                         Rules or dates changed. Generate intervals again before using those prices.
                     </p>
                     <group>

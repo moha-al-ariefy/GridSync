@@ -170,6 +170,12 @@ class GridTariffRule(models.Model):
 
     @api.model_create_multi
     def create(self, values_list):
+        if not self.env.su:
+            if any('company_id' in values for values in values_list):
+                raise AccessError(_('The rule company comes from its tariff source.'))
+            context = dict(self.env.context)
+            context.pop('default_company_id', None)
+            self = self.with_context(context)
         default_source = self.default_get(['source_id']).get('source_id')
         source_ids = {values.get('source_id', default_source) for values in values_list}
         sources = self.env['grid.tariff.source'].browse(sorted(source_ids - {None, False}))
@@ -180,6 +186,8 @@ class GridTariffRule(models.Model):
 
     def write(self, values):
         self.check_access('write')
+        if not self.env.su and 'company_id' in values:
+            raise AccessError(_('The rule company comes from its tariff source.'))
         if 'source_id' in values:
             raise UserError(_('Create a new rule to move it to another tariff.'))
         sources = self.source_id

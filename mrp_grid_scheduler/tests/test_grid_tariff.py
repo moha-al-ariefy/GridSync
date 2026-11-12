@@ -155,3 +155,18 @@ class TestGridTariff(TransactionCase):
         with patch(get_path) as get:
             model._cron_sync_energy_charts()
             get.assert_not_called()
+
+    def test_manual_interval_metadata_stays_tied_to_the_source(self):
+        source = self.env['grid.tariff.source'].with_user(self.manager).create({
+            'name': 'Manual metadata test', 'source_reference': 'Test fixture',
+        })
+        slots = self.env['grid.tariff.slot'].with_user(self.manager)
+        values = {'source_id': source.id, 'start_utc': '2026-11-12 00:00:00', 'price_per_mwh': 5}
+        with self.assertRaises(AccessError):
+            slots.create(dict(values, currency_id=self.env.ref('base.EUR').id))
+        slot = slots.with_context(default_currency_id=self.env.ref('base.EUR').id,
+                                  default_company_id=self.other_company.id).create(values)
+        self.assertEqual(slot.company_id, source.company_id)
+        self.assertEqual(slot.currency_id, source.currency_id)
+        with self.assertRaises(AccessError):
+            slot.write({'company_id': self.other_company.id})

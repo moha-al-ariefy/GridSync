@@ -8,6 +8,7 @@
         'security/grid_security.xml',
         'security/ir.model.access.csv',
         'views/grid_site_views.xml',
+        'views/mrp_workcenter_views.xml',
         'views/grid_tariff_load_views.xml',
         'views/grid_tariff_views.xml',
         'views/res_config_settings_views.xml',

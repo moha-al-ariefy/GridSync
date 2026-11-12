@@ -43,3 +43,8 @@ GridSync managers can add a **Manual intervals**, **Time-of-use rules**, or **CS
 ## Historical tariff check
 
 The [TAQA Distribution 2025 tariff booklet](https://www.addc.ae/en-US/business/Documents/2025%20Tariff%20%28English%29.pdf) lists 36.6 fils/kWh for peak hours and 27.0 fils/kWh outside peak hours for industrial customers over 1 MW. The peak window is 10:00 to 22:00 from June 1 through September 30, in Asia/Dubai. To check the historical summer example, use AED, enter 0.366 and 0.270 AED/kWh, and generate June 2 through June 8, 2025. The expected output is 672 intervals, 336 at each price. Verify current eligibility and the applicable tariff with the provider before using it for a real site.
+
+
+## Set up a work center for scheduling
+
+Open **GridSync > Work centers**, select a work center, and open **Electricity**. A user with both Manufacturing Administrator and GridSync Manager access can enter operating power in kW, add its reference, and choose a tariff from the same company. **Allow schedule suggestions** starts off. Turn it on after choosing an active tariff and entering a positive power value. GridSync planners can view these settings.
