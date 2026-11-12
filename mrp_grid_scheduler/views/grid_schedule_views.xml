@@ -12,7 +12,7 @@
                 <field name="currency_id" optional="show"/>
                 <field name="proposed_cost" optional="show"/>
                 <field name="unscheduled_count" optional="show"/>
-                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'proposed'"/>
+                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-muted="state == 'reverted'"/>
                 <field name="company_id" groups="base.group_multi_company"/>
             </list>
         </field>
@@ -24,6 +24,10 @@
             <form string="Schedule proposal">
                 <header>
                     <button name="action_compute" type="object" string="Compute proposal" class="btn-primary" invisible="state != 'draft' or not id"/>
+                    <button name="action_review_apply" type="object" string="Review and apply" class="btn-primary"
+                            invisible="state != 'proposed' or not complete or not moved_count"/>
+                    <button name="action_review_revert" type="object" string="Review revert"
+                            invisible="state != 'applied'"/>
                     <button name="action_new_run" type="object" string="New run with these settings" invisible="state == 'draft'"/>
                     <field name="state" widget="statusbar"/>
                 </header>
@@ -36,7 +40,7 @@
                     <field name="has_current_cost" invisible="1"/>
                     <field name="has_lower_bound" invisible="1"/>
                     <p class="alert alert-info" role="status" invisible="state != 'proposed'">
-                        This is a proposal only. Work orders are not changed.
+                        Review the dates and estimated costs before applying this proposal.
                     </p>
                     <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
                         Some operations could not be scheduled. Any existing bookings for them stay in place.
@@ -57,7 +61,7 @@
                         Choose work centers with schedule suggestions turned on. Operations that are ready or waiting, and either
                         unplanned or planned to start in this period, are included. Other bookings stay in place.
                     </p>
-                    <group invisible="state != 'proposed'">
+                    <group invisible="state == 'draft'">
                         <group string="Estimated cost">
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="proposed_cost"/>
@@ -75,7 +79,17 @@
                             <field name="method"/>
                         </group>
                     </group>
-                    <notebook invisible="state != 'proposed'">
+                    <group string="Schedule history" invisible="state not in ('applied', 'reverted')">
+                        <group>
+                            <field name="applied_at"/>
+                            <field name="applied_by"/>
+                        </group>
+                        <group invisible="state != 'reverted'">
+                            <field name="reverted_at"/>
+                            <field name="reverted_by"/>
+                        </group>
+                    </group>
+                    <notebook invisible="state == 'draft'">
                         <page string="Operations" name="lines">
                             <field name="line_ids">
                                 <list create="0" delete="0" edit="0"
@@ -88,7 +102,7 @@
                                     <field name="duration_minutes" optional="hide"/>
                                     <field name="deadline" optional="hide"/>
                                     <field name="current_start"/>
-                                    <field name="current_end" optional="hide"/>
+                                    <field name="current_end" optional="show"/>
                                     <field name="proposed_start"/>
                                     <field name="proposed_end"/>
                                     <field name="energy_kwh" optional="show"/>
@@ -125,6 +139,8 @@
                 <field name="workcenter_ids"/>
                 <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
                 <filter name="proposed" string="Proposed" domain="[('state', '=', 'proposed')]"/>
+                <filter name="applied" string="Applied" domain="[('state', '=', 'applied')]"/>
+                <filter name="reverted" string="Reverted" domain="[('state', '=', 'reverted')]"/>
             </search>
         </field>
     </record>
@@ -139,4 +155,29 @@
     </record>
     <menuitem id="menu_grid_schedule" name="Schedule" parent="menu_grid_root" action="action_grid_schedule_run"
               groups="group_grid_planner" sequence="5"/>
+    <record id="view_grid_schedule_confirm_form" model="ir.ui.view">
+        <field name="name">grid.schedule.confirm.form</field>
+        <field name="model">grid.schedule.confirm</field>
+        <field name="arch" type="xml">
+            <form>
+                <field name="operation" invisible="1"/>
+                <group><field name="run_id" options="{'no_open': True}"/></group>
+                <p invisible="operation != 'apply'">Apply the reviewed dates to the changed work orders? GridSync checks the bookings again before saving.</p>
+                <p invisible="operation != 'revert'">Restore the previous work-order dates? GridSync checks for new conflicts before saving.</p>
+                <footer>
+                    <button name="action_confirm" type="object" string="Apply schedule" class="btn-primary" invisible="operation != 'apply'"/>
+                    <button name="action_confirm" type="object" string="Revert schedule" class="btn-primary" invisible="operation != 'revert'"/>
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <record id="action_grid_schedule_confirm" model="ir.actions.act_window">
+        <field name="name">Confirm schedule change</field>
+        <field name="res_model">grid.schedule.confirm</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_grid_schedule_confirm_form"/>
+        <field name="target">new</field>
+        <field name="group_ids" eval="[(4, ref('group_grid_planner'))]"/>
+    </record>
 </odoo>

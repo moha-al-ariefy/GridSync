@@ -6,7 +6,7 @@ The UAE use case will use applicable published or customer-provided tariffs. The
 
 ## Status
 
-The add-on is in development. It includes site setup, an electricity price overview, access controls and automatic and manual sync for Germany-Luxembourg day-ahead prices. These are wholesale market prices, not a factory's electricity bill. Tariff sources also support manual intervals, time-of-use rules, and validated CSV imports. The scheduler suggests lower-cost times for open work orders and explains each result. Proposals are not applied to work orders yet.
+The add-on is in development. It includes site setup, an electricity price overview, access controls and automatic and manual sync for Germany-Luxembourg day-ahead prices. These are wholesale market prices, not a factory's electricity bill. Tariff sources also support manual intervals, time-of-use rules, and validated CSV imports. The scheduler suggests lower-cost times for open work orders and explains each result. Planners can review and apply a complete proposal, then restore the original bookings if the schedule still allows it.
 
 The [roadmap](ROADMAP.md) covers the build order. The [build plan](docs/GridSync_Build_Plan.pdf) has the original idea and priorities, and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) has the technical details and things to verify. See [local setup](docs/LOCAL_SETUP.md) for development and test instructions.
 

@@ -186,3 +186,82 @@ class TestGridSchedule(TransactionCase):
         copy.with_user(self.planner).write({'workcenter_ids': [Command.set(self.other_center.ids)]})
         with self.assertRaisesRegex(UserError, 'schedule suggestions'):
             copy.action_compute()
+
+
+    def test_apply_and_revert_restore_the_same_workorder_bookings(self):
+        production, (cut, finish) = self.make_production([('Cut', self.center, 60), ('Finish', self.center, 30)])
+        cut.write({'date_start': at(8), 'date_finished': at(9)})
+        finish.write({'date_start': at(9), 'date_finished': at(9, 30)})
+        original_production = (production.date_start, production.date_finished)
+        run = self.make_run()
+        run.action_compute()
+        self.assertEqual(run.action_review_apply()['target'], 'new')
+        self.assertEqual((cut.date_start, finish.date_start), (at(8), at(9)))
+        lines = {line.workorder_id.id: line for line in run.line_ids}
+        original_bookings = (cut.leave_id.id, finish.leave_id.id)
+        run._change_schedule('apply')
+        self.assertEqual(run.state, 'applied')
+        self.assertEqual(run.applied_by, self.planner)
+        for operation in cut | finish:
+            line = lines[operation.id]
+            self.assertEqual((operation.date_start, operation.date_finished), (line.proposed_start, line.proposed_end))
+            self.assertEqual((operation.leave_id.date_from, operation.leave_id.date_to),
+                             (line.proposed_start, line.proposed_end))
+        self.assertEqual((cut.leave_id.id, finish.leave_id.id), original_bookings)
+        self.assertEqual(run.action_review_revert()['target'], 'new')
+        run._change_schedule('revert')
+        self.assertEqual(run.state, 'reverted')
+        self.assertEqual(run.reverted_by, self.planner)
+        self.assertEqual((cut.date_start, cut.date_finished, finish.date_start, finish.date_finished),
+                         (at(8), at(9), at(9), at(9, 30)))
+        self.assertEqual((production.date_start, production.date_finished), original_production)
+        self.assertEqual((cut.leave_id.id, finish.leave_id.id), original_bookings)
+
+    def test_revert_clears_booking_created_for_unplanned_order(self):
+        production, (operation,) = self.make_production([('Unplanned', self.center, 30)])
+        self.assertFalse(operation.leave_id)
+        original_dates = (production.date_start, production.date_finished)
+        run = self.make_run()
+        run.action_compute()
+        run._change_schedule('apply')
+        booking = operation.leave_id
+        self.assertTrue(booking)
+        run._change_schedule('revert')
+        self.assertFalse(booking.exists())
+        self.assertFalse(operation.leave_id or operation.date_start or operation.date_finished)
+        self.assertEqual((production.date_start, production.date_finished), original_dates)
+
+    def test_apply_refuses_an_edit_or_new_booking(self):
+        _production, (operation,) = self.make_production([('Cut', self.center, 30)])
+        run = self.make_run()
+        run.action_compute()
+        operation.name = 'Edited after review'
+        with self.assertRaisesRegex(UserError, 'changed'):
+            run._change_schedule('apply')
+        self.assertFalse(operation.date_start)
+        run = self.make_run()
+        run.action_compute()
+        self.env['resource.calendar.leaves'].create({
+            'name': 'New maintenance', 'calendar_id': self.calendar.id, 'resource_id': self.center.resource_id.id,
+            'date_from': run.line_ids.proposed_start, 'date_to': run.line_ids.proposed_end, 'time_type': 'other',
+        })
+        with self.assertRaisesRegex(UserError, 'overlaps'):
+            run._change_schedule('apply')
+        self.assertEqual(run.state, 'proposed')
+        self.assertFalse(operation.date_start)
+
+    def test_revert_refuses_a_new_conflict(self):
+        _production, (operation,) = self.make_production([('Cut', self.center, 30)])
+        operation.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.action_compute()
+        run._change_schedule('apply')
+        applied_start = operation.date_start
+        self.env['resource.calendar.leaves'].create({
+            'name': 'New maintenance', 'calendar_id': self.calendar.id, 'resource_id': self.center.resource_id.id,
+            'date_from': at(8), 'date_to': at(8, 30), 'time_type': 'other',
+        })
+        with self.assertRaisesRegex(UserError, 'overlaps'):
+            run._change_schedule('revert')
+        self.assertEqual(run.state, 'applied')
+        self.assertEqual(operation.date_start, applied_start)

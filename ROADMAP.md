@@ -1,6 +1,6 @@
 # GridSync MRP - Development Roadmap
 
-GridSync runs on Odoo 19. Tariff inputs and the scheduler are ready. Review, apply and revert come next.
+GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply and revert.
 
 ## 0. Get Odoo ready
 
@@ -46,7 +46,7 @@ GridSync runs on Odoo 19. Tariff inputs and the scheduler are ready. Review, app
 
 **Done when:** tests show that proposed jobs respect availability, deadlines and dependencies, do not overlap, and have correctly calculated costs.
 
-**Phase 3 check.** GridSync > Schedule creates proposals from open work orders, working hours, existing bookings, dependencies, deadlines and 15-minute prices. The engine in `services/scheduler.py` has no ORM dependency and is a deterministic greedy heuristic. Tests cover partial intervals, negative and missing prices, breaks, a daylight-saving day, dependency order, overlap and costs checked one minute at a time. Each run saves a snapshot that reproduces it. Proposals do not change work orders yet, and carbon data is not used.
+**Phase 3 check.** GridSync > Schedule creates proposals from open work orders, working hours, existing bookings, dependencies, deadlines and 15-minute prices. The engine in `services/scheduler.py` has no ORM dependency and is a deterministic greedy heuristic. Tests cover partial intervals, negative and missing prices, breaks, a daylight-saving day, dependency order, overlap and costs checked one minute at a time. Each run saves a snapshot that reproduces it. Computing a proposal leaves work orders in place. Estimates use electricity prices.
 
 ## 4. Review, apply and revert
 
@@ -56,6 +56,8 @@ GridSync runs on Odoo 19. Tariff inputs and the scheduler are ready. Review, app
 - Save a snapshot and add a tested revert. If a record changed after the run, stop and explain instead of silently overwriting it.
 
 **Done when:** a planner can run, review, apply and revert a real work order in the development database, with permissions and conflicts checked. A proposal cannot be applied if its calendar or constraints were not checked.
+
+**Phase 4 check.** Review a complete proposal before applying it. GridSync checks the saved work orders and the current calendar before it updates Odoo. Revert restores the original dates and calendar bookings when they still fit. The proposal keeps the planner and time for both actions.
 
 ## 5. Get the hackathon demo ready
 

@@ -103,8 +103,8 @@ def _overlaps(intervals, start, end):
 
 
 class _Center:
-    def __init__(self, data, horizon_start, horizon_end):
-        if not math.isfinite(data.power_kw) or data.power_kw <= 0:
+    def __init__(self, data, horizon_start, horizon_end, require_power=True):
+        if require_power and (not math.isfinite(data.power_kw) or data.power_kw <= 0):
             raise ScheduleInputError(f'Work center {data.key} needs a positive operating power.')
         for start, price in (data.prices or {}).items():
             if floor_slot(start) != start or not math.isfinite(price):
@@ -430,6 +430,32 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
     if lower_bound is not None and lower_bound > proposed_cost + 10 ** -COST_DIGITS * max(1, len(jobs)):
         raise AssertionError('The lower bound exceeds the proposed cost.')
     return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete)
+
+
+def check_placements(start, end, workcenters, jobs, times, require_prices=True):
+    """making sure of the booking date before odoo save them"""
+    centers = {item.key: _Center(item, start, end, require_power=require_prices) for item in workcenters}
+    bookings = {key: list(center.busy) for key, center in centers.items()}
+    for job in jobs:
+        window = times.get(job.key)
+        if not window:
+            continue
+        low, high = window
+        center = centers[job.workcenter]
+        worked = center.walk(low, _duration(job))
+        if low < job.release or high > min(job.due or end, end) or job.blocked_reason:
+            raise ScheduleInputError(f'Operation {job.key} no longer fits its dependencies or deadline.')
+        if not worked or worked[0] != high:
+            raise ScheduleInputError(f'Operation {job.key} no longer fits its working hours.')
+        if _overlaps(bookings[job.workcenter], low, high):
+            raise ScheduleInputError(f'Operation {job.key} overlaps an existing booking.')
+        if require_prices and center.price(worked[1]) is None:
+            raise ScheduleInputError(f'Operation {job.key} is missing price intervals.')
+        for predecessor in job.predecessors:
+            earlier = times.get(predecessor)
+            if not earlier or earlier[1] > low:
+                raise ScheduleInputError(f'Operation {job.key} no longer fits its dependency order.')
+        bookings[job.workcenter].append((low, high))
 
 
 def _iso(value):

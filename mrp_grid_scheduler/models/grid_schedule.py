@@ -17,6 +17,7 @@ RESULT_FIELDS = {
     'state', 'computed_at', 'method', 'currency_id', 'proposed_cost', 'current_cost', 'lower_bound',
     'has_current_cost', 'has_lower_bound', 'complete', 'job_count', 'moved_count', 'unchanged_count',
     'unscheduled_count', 'data_notes', 'snapshot', 'line_ids',
+    'applied_at', 'applied_by', 'reverted_at', 'reverted_by', 'application_snapshot',
 }
 
 
@@ -62,8 +63,9 @@ class GridScheduleRun(models.Model):
 
     name = fields.Char(required=True, default=lambda self: self.env._('Schedule proposal'))
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
-    state = fields.Selection([('draft', 'Draft'), ('proposed', 'Proposed')], default='draft', required=True,
-                             readonly=True, copy=False)
+    state = fields.Selection([
+        ('draft', 'Draft'), ('proposed', 'Proposed'), ('applied', 'Applied'), ('reverted', 'Reverted'),
+    ], default='draft', required=True, readonly=True, copy=False)
     date_from = fields.Datetime('Period start', required=True, default=_default_date_from)
     date_to = fields.Datetime('Period end', required=True, default=_default_date_to)
     workcenter_ids = fields.Many2many(
@@ -87,6 +89,11 @@ class GridScheduleRun(models.Model):
     unscheduled_count = fields.Integer('Not scheduled', readonly=True, copy=False)
     data_notes = fields.Text('Data used', readonly=True, copy=False)
     snapshot = fields.Json(readonly=True, copy=False)
+    application_snapshot = fields.Json(readonly=True, copy=False)
+    applied_at = fields.Datetime(readonly=True, copy=False)
+    applied_by = fields.Many2one('res.users', readonly=True, copy=False)
+    reverted_at = fields.Datetime(readonly=True, copy=False)
+    reverted_by = fields.Many2one('res.users', readonly=True, copy=False)
     line_ids = fields.One2many('grid.schedule.line', 'run_id', string='Proposed operations', readonly=True, copy=False)
 
     @api.depends('proposed_cost', 'current_cost', 'lower_bound', 'has_current_cost', 'has_lower_bound')
@@ -155,27 +162,29 @@ class GridScheduleRun(models.Model):
         self._save_result(start, end, now, workorders, center_inputs, job_inputs, result, notes, sources)
         return True
 
-    def _check_workcenters(self):
+    def _check_workcenters(self, require_tariff=True):
         centers = self.workcenter_ids
         if not centers:
             raise UserError(_('Choose at least one work center.'))
         for center in centers:
             tariff = center.grid_tariff_source_id
-            if not center.active or not center.grid_allow_shift or center.grid_power_kw <= 0 or not tariff.active:
+            if not center.active:
+                raise UserError(_('The work center %s is archived.', center.name))
+            if require_tariff and (not center.grid_allow_shift or center.grid_power_kw <= 0 or not tariff.active):
                 raise UserError(_('Turn on schedule suggestions for %s and give it power and an active tariff.', center.name))
-            if center.company_id != self.company_id or tariff.company_id != self.company_id:
+            if center.company_id != self.company_id or (require_tariff and tariff.company_id != self.company_id):
                 raise UserError(_('The work center and tariff for %s must belong to the proposal company.', center.name))
             calendar = center.resource_calendar_id
             if not calendar:
                 raise UserError(_('Add working hours to %s before scheduling it.', center.name))
             if calendar.flexible_hours:
                 raise UserError(_('%s uses flexible hours. Choose fixed working hours before scheduling it.', center.name))
-        if len(centers.grid_tariff_source_id.currency_id) > 1:
+        if require_tariff and len(centers.grid_tariff_source_id.currency_id) > 1:
             raise UserError(_('Choose work centers whose tariffs use the same currency.'))
         return centers
 
-    def _workcenter_inputs(self, centers, workorders, start, end):
-        tariffs = centers.grid_tariff_source_id
+    def _workcenter_inputs(self, centers, workorders, start, end, include_prices=True):
+        tariffs = centers.grid_tariff_source_id if include_prices else self.env['grid.tariff.source']
         slots = self.env['grid.tariff.slot'].search([
             ('source_id', 'in', tariffs.ids), ('is_current', '=', True),
             ('start_utc', '>=', start), ('start_utc', '<', end),
@@ -203,7 +212,7 @@ class GridScheduleRun(models.Model):
             inputs.append(WorkcenterInput(
                 key=center.id, power_kw=center.grid_power_kw,
                 working=tuple((_utc(low), _utc(high)) for low, high, _records in intervals),
-                busy=tuple(busy), prices=prices[center.grid_tariff_source_id.id],
+                busy=tuple(sorted(busy)), prices=prices.get(center.grid_tariff_source_id.id, {}),
             ))
         expected = (end - start) // STEP
         notes, sources = [], []
@@ -299,6 +308,8 @@ class GridScheduleRun(models.Model):
             'unscheduled_count': statuses.count('unscheduled'), 'data_notes': '\n'.join(notes),
             'snapshot': {
                 'computed_at': now.isoformat(), 'requested_period': [self.date_from.isoformat(), self.date_to.isoformat()],
+                'workorders': self._snapshot_workorders(workorders),
+                'manufacturing': self._snapshot_manufacturing(workorders.production_id),
                 'sources': sources, 'inputs': dump_inputs(start, end, center_inputs, job_inputs),
                 'result': {str(key): {
                     'status': item.status, 'reason': item.reason,

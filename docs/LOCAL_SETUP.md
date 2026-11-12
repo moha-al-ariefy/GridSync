@@ -31,7 +31,7 @@ Under Tariffs, a GridSync Manager can add an Energy-Charts DE-LU source and sele
 
 Automatic sync is on by default for each company. Odoo checks every five minutes while its scheduled actions are running. Opening Overview or Tariffs also checks for a refresh if the last attempt was at least five minutes ago. An Odoo administrator can turn it off under **GridSync > Settings**. GridSync managers can still use **Sync prices**.
 
-The DE-LU feed shows published wholesale day-ahead prices for Germany and Luxembourg. Overview shows the last successful refresh and warns about old refreshes, failed loads, and gaps. Price data is never used to change work orders in this version.
+The DE-LU feed shows published wholesale day-ahead prices for Germany and Luxembourg. Overview shows the last successful refresh and warns about old refreshes, failed loads, and gaps.
 
 ## Load your own tariff
 
@@ -56,3 +56,9 @@ Open **GridSync > Schedule** and create a proposal. Choose a period of up to 14 
 GridSync includes ready and waiting work orders from confirmed manufacturing orders. A work order is included if it is unplanned or planned to start in the period. Other bookings and time off stay in place. Operations keep their dependency order and finish before the manufacturing order deadline, a later planned operation, and the end of the period. They start on 15-minute marks, at the start of working hours or at their current time. Energy is counted only during working hours. Times with missing prices are not used.
 
 Each line shows the current and proposed times, estimated energy and cost, and why the operation moved, stayed or could not be scheduled. The proposal shows current costs when the existing bookings are feasible and covered by prices. It keeps a feasible current schedule if the heuristic cannot find a cheaper complete one. A complete proposal also shows a lower bound. The lower bound assumes each operation gets its cheapest time without competing for it. The run saves the data used and cannot be recomputed. Select **New run with these settings** to try again. An operation that keeps its booking still blocks that time and constrains dependent operations. Computing a proposal leaves work orders in place.
+
+## Apply or revert a proposal
+
+For a complete proposal with moves, review the dates and costs, then select **Review and apply** and confirm. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
+
+Select **Review revert** on an applied proposal and confirm to restore the original dates. Originally unplanned operations go back to being unplanned. If an order has started, a booking is in the past, or a newer change makes the original dates unsafe, GridSync stops before writing. If another scheduling update is in progress, try again shortly.
