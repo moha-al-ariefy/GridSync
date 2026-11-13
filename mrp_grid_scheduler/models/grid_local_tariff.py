@@ -9,6 +9,7 @@ from ..services.local_tariffs import MAX_DAYS, WEEKDAYS, TariffInputError, clock
 
 
 LOCAL_SOURCE_TYPES = ('manual_tou', 'csv')
+LOCAL_TARIFF_LOCK_NAMESPACE = 5108844
 
 
 class GridTariffSource(models.Model):
@@ -59,7 +60,7 @@ class GridTariffSource(models.Model):
 
     def _lock_local_tariff(self):
         self.ensure_one()
-        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s, %s)', (5108844, self.id))
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s, %s)', (LOCAL_TARIFF_LOCK_NAMESPACE, self.id))
         if not self.env.cr.fetchone()[0]:
             raise UserError(_('This tariff is being updated. Try again shortly.'))
 

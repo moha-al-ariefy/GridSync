@@ -1,5 +1,6 @@
 import json
 import math
+from collections import defaultdict
 from datetime import timedelta
 import pytz
 import requests
@@ -13,6 +14,7 @@ from ..services.energy_charts import ENERGY_CHARTS_MARKETS, PriceDataError, pars
 ENERGY_CHARTS_URL = 'https://api.energy-charts.info/v2/price'
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 AUTO_SYNC_INTERVAL = timedelta(minutes=5)
+ENERGY_CHARTS_SYNC_LOCK = 510884413214
 
 
 class GridTariffSource(models.Model):
@@ -139,7 +141,7 @@ class GridTariffSource(models.Model):
         return level == 'success'
 
     def _sync_energy_charts(self, automatic=False):
-        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s)', [510884413214])
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s)', [ENERGY_CHARTS_SYNC_LOCK])
         if not self.env.cr.fetchone()[0]:
             return _('Another price sync is running. Try again shortly.'), 'busy'
         now = fields.Datetime.now()
@@ -207,14 +209,17 @@ class GridTariffSource(models.Model):
         existing = slots.search([
             ('source_id', '=', self.id), ('start_utc', 'in', [start for start, _ in parsed['slots']]),
         ])
-        existing_by_start = {slot.start_utc: slot for slot in existing}
+        existing_by_start = {slot.start_utc: slot.id for slot in existing}
+        updates = defaultdict(list)
         new_slots = []
         for start, price in parsed['slots']:
             values = {'price_per_mwh': price, 'is_current': True, 'observed_at': now}
             if start in existing_by_start:
-                existing_by_start[start].write(values)
+                updates[price].append(existing_by_start[start])
             else:
                 new_slots.append({'source_id': self.id, 'start_utc': start, **values})
+        for price, ids in updates.items():
+            slots.browse(ids).write({'price_per_mwh': price, 'is_current': True, 'observed_at': now})
         slots.create(new_slots)
         if parsed['missing_starts']:
             slots.search([

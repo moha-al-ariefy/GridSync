@@ -108,6 +108,16 @@ class TestGridTariff(TransactionCase):
         self.assertEqual(len(self.env['grid.tariff.slot'].search([('source_id', '=', self.source.id)])), 2)
 
         source = self.source.with_user(self.manager)
+        source.sync_ids.sudo().write({'next_allowed_at': '2026-01-01 00:00:00'})
+        for item in payload['data']:
+            item['values']['day_ahead_price'] = 9
+        response.iter_content.return_value = [json.dumps(payload).encode()]
+        with patch('odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get', return_value=response):
+            source.action_sync_energy_charts()
+        self.assertEqual(source.slot_ids.mapped('price_per_mwh'), [9, 9])
+        self.assertTrue(all(source.slot_ids.mapped('is_current')))
+        self.assertEqual(source.sync_ids.sorted('id')[-1].updated, 2)
+
         last_sync = source.last_sync_at
         saved = source.slot_ids.sorted('start_utc').mapped('price_per_mwh')
         source.sync_ids.sudo().write({'next_allowed_at': '2026-01-01 00:00:00'})
