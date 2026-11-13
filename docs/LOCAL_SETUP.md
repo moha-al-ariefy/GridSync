@@ -66,3 +66,22 @@ Each line shows the current and proposed times, estimated energy and cost, and w
 For a complete proposal with moves, review the dates and costs, then select **Review and apply** and confirm. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
 
 Select **Review revert** on an applied proposal and confirm to restore the original dates. Originally unplanned operations go back to being unplanned. If an order has started, a booking is in the past, or a newer change makes the original dates unsafe, GridSync stops before writing. If another scheduling update is in progress, try again shortly.
+
+## Check the energy cost after a run
+
+After a moved operation is finished, a GridSync manager can open its applied proposal and select **Import readings** on the operation. Choose the site's tariff from the proposal and enter a meter reference. Use a meter that covers only that operation during the uploaded intervals. The run times come from Odoo's productive and performance logs.
+
+Upload a UTF-8 CSV with the header `start,end,kwh`. Use timestamps with `Z` or an explicit offset and enter the kWh consumed in each interval. Intervals may be up to 15 minutes. They must cover the logged run times exactly, including any separate stretches of work. GridSync stops on gaps, overlaps, shared work-center time, or missing site prices. If an interval crosses a price change, its kWh are divided by time.
+
+The result shows metered kWh and the calculated energy charge. When the same workload fits the original booking and those prices are available, it also shows the estimated charge at the original times. Open **Energy result** from the proposal or the work order to review it later.
+
+Uploading the same readings again opens the saved result. A second import with different readings stops before changing the saved result.
+
+The bill comparison is optional. Enter the energy-charge amount only when the bill line covers the same meter and continuous period as the CSV. Leave demand charges, taxes, and fixed fees out. Keep account and meter numbers out of references shared outside the company.
+
+## First site pilot
+
+1. Start on a copy of the site's Odoo database. Pick one work center with a dedicated meter and check its operating power, calendar, and tariff against the site's current rate schedule. Confirm that prices cover both the original and proposed times.
+2. Ask the planner to review a real proposal against the production schedule. On the copy, apply it, check the dates in Manufacturing, and revert it before the work starts. Check that the original bookings return.
+3. Use a finished operation from an applied schedule to check the meter import. Compare the imported kWh with the meter export and calculate the energy charge independently using the same tariff intervals. Check the original-time estimate separately. Use a bill charge only when it covers the same meter and period.
+4. Record the tariff revision, period, work center, planner, and any differences. Keep the supporting records in the site's own system. Review the differences and get the site's sign-off before applying changes in production.

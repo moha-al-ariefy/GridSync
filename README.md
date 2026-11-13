@@ -10,6 +10,8 @@ The add-on is in development. It includes site setup, an electricity price overv
 
 The [roadmap](ROADMAP.md) covers the build order. The [build plan](docs/GridSync_Build_Plan.pdf) has the original idea and priorities, and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) has the technical details and things to verify. See [local setup](docs/LOCAL_SETUP.md) for development and test instructions.
 
+For a moved work order that has finished, a GridSync manager can import meter intervals and calculate the energy charge using the site tariff. The saved result shows metered kWh and, when the readings fit the original booking, the estimated cost at the original times. A site can compare the result with a matching bill charge.
+
 ## Principles
 
 - Use real, permitted data or user-entered inputs with a source. Clearly label forecasts, estimates and old or missing data.

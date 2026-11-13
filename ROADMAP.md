@@ -64,15 +64,19 @@ GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply
 - Start with one manufacturing site. Verify its current electricity tariff against its bill and rate schedule, including effective dates, peak hours and any site-specific terms. Get workcenter power readings or documented estimates from the site.
 - Compare the original and proposed schedules using the same tariff. Show estimated energy-charge savings, including zero savings when the applicable rate is flat. Keep wholesale market prices labeled with their market and currency.
 - Run proposals against the site's schedule for review first. Have the planner check the dates, deadlines and costs. Start applying changes after the planner has tested approval, conflict handling and revert on a copy of the site database.
+- Track results after work orders finish. Start with an interval meter CSV and Odoo's actual run times. Show metered kWh, the energy charge calculated from the site's tariff, and the estimated cost of running the same measured workload at the original times. Flag missing readings or meter data that covers equipment the app can't attribute to the work order.
+- Let the site compare the calculated energy charge with the matching charge on its bill when the meter scope and billing period match. Keep demand charges, fixed fees and taxes outside that comparison.
 - Review permissions and company isolation. Test a clean install, an upgrade, backup restore, missing and stale prices, and simultaneous schedule edits. Check the planner screens in Odoo and make sure sync and scheduling failures are visible.
 - Confirm who owns the code and include the LGPL and GPL texts in the customer build. Confirm that the organizers accept the Green and Renewable Energy framing.
 
-**Done when:** a planner at the first site can verify the price inputs, review and apply a proposal, and recover the previous schedule when it is safe to do so. Record what the site verified before making savings claims.
+**Done when:** a planner at the first site can verify the price inputs, review and apply a proposal, and recover the previous schedule when it is safe to do so. Test the meter import and cost comparison against a known result. Record what the site verified before making savings claims.
+
+**Phase 5 local check.** The meter import uses Odoo's completed run times. The result keeps the readings and prices used in the calculation. A backup and restore kept the result intact, and an Odoo test run applied and reverted 120 operations across six work centers. The first site still needs to verify its tariff, review the results against its own readings, and sign off on the workflow.
 
 ## 6. After the core works
 
 - Check the workflow and willingness to pay with manufacturers. Confirm data access and costs.
-- Add an energy and cost ledger using real time logs and sourced power profiles. Label the results as estimates unless actual meter data is available.
+- Add direct meter integrations and expand billing reconciliation once the interval import is working at the first site.
 - Explore accounting, more market providers and currency conversion.
 - Consider exact optimization, an optional ESG integration and advanced scheduling after the core is reliable and the required data is available.
 - Repeat the rollout checks at other sites and verify operating and support costs before expanding.

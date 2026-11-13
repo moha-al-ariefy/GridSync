@@ -6,3 +6,4 @@ from . import grid_tariff_load
 from . import mrp_workcenter
 from . import grid_schedule
 from . import grid_schedule_change
+from . import grid_energy

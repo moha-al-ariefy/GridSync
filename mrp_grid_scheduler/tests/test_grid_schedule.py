@@ -1,11 +1,15 @@
+import base64
 from datetime import datetime, timedelta
+from decimal import Decimal
+from unittest.mock import patch
 
-from odoo import Command
+from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
 
 from ..services.scheduler import load_inputs, schedule
+from ..services.meter_readings import parse_meter_csv, price_readings
 
 
 DAY = datetime(2030, 1, 7)  # A Monday in the future, so "now" never limits these tests.
@@ -313,3 +317,77 @@ class TestGridSchedule(TransactionCase):
             run._change_schedule('apply')
         self.assertEqual(run.state, 'proposed')
         self.assertEqual((operation.date_start, operation.date_finished), (at(8), at(8, 30)))
+
+    def make_meter_import(self):
+        _production, (order,) = self.make_production([('Metered press', self.center, 30)])
+        order.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.action_compute()
+        run._change_schedule('apply')
+        line = run.line_ids
+        self.assertEqual((line.proposed_start, line.proposed_end), (at(13), at(13, 30)))
+        loss = self.env['mrp.workcenter.productivity.loss'].search([('loss_type', '=', 'productive')], limit=1)
+        self.env['mrp.workcenter.productivity'].create({
+            'workcenter_id': self.center.id, 'workorder_id': order.id, 'loss_id': loss.id,
+            'date_start': at(13), 'date_end': at(13, 30),
+        })
+        with patch.object(fields.Datetime, 'now', return_value=at(13, 30)):
+            order.button_finish()
+        wizard = self.env['grid.energy.import'].with_user(self.manager).create({
+            'line_id': line.id, 'tariff_id': self.tariff.id, 'meter_reference': 'Test submeter export',
+            'dedicated_meter': True, 'csv_file': base64.b64encode(
+                b'start,end,kwh\n2030-01-07T13:00Z,2030-01-07T13:15Z,6\n2030-01-07T13:15Z,2030-01-07T13:30Z,4\n'),
+        })
+        return line, wizard
+
+    def test_meter_result_prices_actual_and_original_times(self):
+        line, wizard = self.make_meter_import()
+        wizard.write({'compare_bill': True, 'bill_reference': 'Test charge line', 'bill_start': at(13),
+                      'bill_end': at(13, 30), 'billed_charge': 0.11})
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            action = wizard.action_import()
+            self.assertEqual(wizard.action_import()['res_id'], action['res_id'])
+            self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
+            self.assertEqual(wizard.action_import()['res_id'], action['res_id'])
+            wizard.meter_reference = 'A different meter'
+            with self.assertRaisesRegex(UserError, 'already has a saved meter result'):
+                wizard.action_import()
+        result = line.energy_result_ids
+        self.assertEqual((result.measured_kwh, result.has_baseline, result.has_bill), (10, True, True))
+        self.assertAlmostEqual(result.energy_charge, 0.10)
+        self.assertAlmostEqual(result.baseline_charge, 1.00)
+        self.assertAlmostEqual(result.estimated_savings, 0.90)
+        self.assertAlmostEqual(result.bill_difference, 0.01)
+        self.assertEqual(result.imported_by, self.manager)
+        self.assertEqual(line.workorder_id.with_user(self.planner).action_open_grid_energy_result()['res_id'], result.id)
+        with self.assertRaises(AccessError):
+            result.with_user(self.planner).write({'measured_kwh': 100})
+        with self.assertRaises(AccessError):
+            result.with_user(self.outsider).read(['measured_kwh'])
+
+    def test_meter_import_rejects_incomplete_and_shared_usage(self):
+        line, wizard = self.make_meter_import()
+        original = wizard.csv_file
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.csv_file = base64.b64encode(
+                base64.b64decode(original) + b'2030-01-07T17:00+04:00,2030-01-07T17:15+04:00,6\n',
+            )
+            with self.assertRaisesRegex(UserError, 'overlap'):
+                wizard.action_import()
+            wizard.csv_file = base64.b64encode(b'start,end,kwh\n2030-01-07T13:00Z,2030-01-07T13:15Z,6\n')
+            with self.assertRaisesRegex(UserError, 'Check for gaps'):
+                wizard.action_import()
+            wizard.csv_file = original
+            _production, (other,) = self.make_production([('Other operation', self.center, 15)])
+            self.env['mrp.workcenter.productivity'].create({
+                'workcenter_id': self.center.id, 'workorder_id': other.id,
+                'loss_id': line.workorder_id.time_ids.loss_id.id, 'date_start': at(13, 15), 'date_end': at(13, 30),
+            })
+            with self.assertRaisesRegex(UserError, 'Another operation'):
+                wizard.action_import()
+        self.assertFalse(line.energy_result_ids)
+
+    def test_meter_reading_split_at_tariff_change(self):
+        readings = parse_meter_csv(b'start,end,kwh\n2030-01-07T17:55+05:00,2030-01-07T18:10+05:00,6\n')
+        prices = {at(12, 45): Decimal('100'), at(13): Decimal('10')}
+        self.assertEqual(price_readings(readings, prices), (Decimal('0.24'), set(prices)))

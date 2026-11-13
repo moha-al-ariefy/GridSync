@@ -284,6 +284,7 @@ class GridScheduleRun(models.Model):
             lines.append({
                 'run_id': self.id, 'workorder_id': workorder.id, 'production_id': workorder.production_id.id,
                 'workcenter_id': workorder.workcenter_id.id, 'operation': workorder.name,
+                'tariff_source_id': workorder.workcenter_id.grid_tariff_source_id.id,
                 'duration_minutes': workorder.duration_expected, 'deadline': jobs[workorder.id].due,
                 'current_start': workorder.date_start, 'current_end': workorder.date_finished,
                 'proposed_start': item.proposed and item.proposed.start,

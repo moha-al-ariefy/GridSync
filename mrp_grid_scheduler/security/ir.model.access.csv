@@ -13,3 +13,5 @@ access_grid_run_planner,grid.schedule.run planner,model_grid_schedule_run,group_
 access_grid_run_manager,grid.schedule.run manager,model_grid_schedule_run,group_grid_manager,1,1,1,1
 access_grid_line_planner,grid.schedule.line planner,model_grid_schedule_line,group_grid_planner,1,0,0,0
 access_grid_schedule_confirm_planner,grid.schedule.confirm planner,model_grid_schedule_confirm,group_grid_planner,1,1,1,1
+access_grid_energy_result_planner,grid.energy.result planner,model_grid_energy_result,group_grid_planner,1,0,0,0
+access_grid_energy_import_manager,grid.energy.import manager,model_grid_energy_import,group_grid_manager,1,1,1,1

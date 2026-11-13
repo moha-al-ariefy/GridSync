@@ -50,4 +50,9 @@
         <field name="model_id" ref="model_grid_schedule_line"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="rule_grid_energy_result_company" model="ir.rule">
+        <field name="name">GridSync meter results by company</field>
+        <field name="model_id" ref="model_grid_energy_result"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

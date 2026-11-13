@@ -99,8 +99,15 @@
                                       decoration-info="status == 'moved'" decoration-warning="status == 'unscheduled'">
                                     <field name="currency_id" column_invisible="1"/>
                                     <field name="has_current_cost" column_invisible="1"/>
+                                    <field name="operation_state" column_invisible="1"/>
+                                    <field name="energy_result_ids" column_invisible="1"/>
                                     <field name="production_id"/>
                                     <field name="operation"/>
+                                    <button name="action_open_meter_import" type="object" string="Import readings"
+                                            groups="mrp_grid_scheduler.group_grid_manager" column_invisible="parent.state != 'applied'"
+                                            invisible="status != 'moved' or operation_state != 'done' or energy_result_ids"/>
+                                    <button name="action_open_energy_result" type="object" string="Energy result"
+                                            column_invisible="parent.state != 'applied'" invisible="not energy_result_ids"/>
                                     <field name="workcenter_id"/>
                                     <field name="duration_minutes" optional="hide"/>
                                     <field name="deadline" optional="hide"/>

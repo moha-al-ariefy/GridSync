@@ -11,12 +11,13 @@ The original [build plan](docs/GridSync_Build_Plan.pdf) covers the architecture,
 3. The planner selects work orders and a time period. The app saves a snapshot of the jobs, durations, dependencies, bookings and available data.
 4. The scheduler suggests feasible times and shows the estimated costs, any carbon estimates, assumptions and jobs that couldn't be placed. Where meaningful, it also shows a valid lower bound for comparison.
 5. The planner reviews and confirms the changes. Before applying, the app checks for conflicts, record changes and access permissions. It also keeps the information needed to revert safely.
+6. After the work finishes, the planner can import interval readings and check the energy charge against the tariff. Compare the same measured workload at the original booking times when the readings cover the work. Show the readings and the baseline estimate on the run.
 
 ## Priorities
 
 **P0: core scheduling.** Build the Odoo add-on, access rules, company boundaries, provider and slot storage, sync log, a DE-LU Energy-Charts price adapter, manual tariff profiles and CSV import, workcenter energy inputs, a tested deterministic heuristic, run snapshots, review screen, apply and revert. Carbon inputs and estimated DE-LU intensity are part of the proposed P0 only where sourced, reproducible inputs and assumptions can be verified. A tariff-only workflow should remain usable when carbon data is unavailable.
 
-**P1: after core gates pass.** Investigate work-order energy and cost ledger from real time records and specified power profiles, analytic posting, calendar and overtime handling, UK carbon-only provider, currency conversion and performance testing. Time logs and rated power produce estimates unless actual metered consumption is available; never label these figures as measured energy or actual emissions without such evidence.
+**P1: after core gates pass.** Phase 5 adds an energy and cost ledger using actual run times and interval meter CSV imports. Validate meter scope, duplicate intervals, coverage, and the applicable tariff before reporting a meter-based cost comparison. Time logs and rated power can still provide an estimate when readings are missing. Explore analytic posting, calendar and overtime handling, a UK carbon-only provider, currency conversion and performance testing after that.
 
 **P2: optional extras.** Look into a separate ESG bridge, an Odoo AI tool wrapper, an exact solver, Enterprise Gantt, automated re-optimization, contract tariffs and onsite energy inputs. Check edition and API support first. None of these is needed for the core app.
 
