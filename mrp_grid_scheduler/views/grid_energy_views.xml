@@ -142,6 +142,27 @@
             </form>
         </field>
     </record>
+    <record id="view_grid_energy_analytic_post_form" model="ir.ui.view">
+        <field name="name">grid.energy.analytic.post.form</field>
+        <field name="model">grid.energy.analytic.post</field>
+        <field name="arch" type="xml">
+            <form string="Post analytic energy cost">
+                <group>
+                    <field name="result_id" invisible="1"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="currency_id" invisible="1"/>
+                    <field name="energy_charge"/>
+                    <field name="account_id" domain="['|', ('company_id', '=', False), ('company_id', '=', company_id)]"
+                           options="{'no_create': True, 'no_open': True}"/>
+                </group>
+                <p class="text-muted">Post the calculated energy charge to an analytic account. Check whether the vendor bill already includes the same cost in this account.</p>
+                <footer>
+                    <button name="action_post" type="object" string="Post cost" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
     <record id="view_grid_energy_result_form" model="ir.ui.view">
         <field name="name">grid.energy.result.form</field>
         <field name="model">grid.energy.result</field>
@@ -151,6 +172,7 @@
                     <field name="has_baseline" invisible="1"/>
                     <field name="has_bill" invisible="1"/>
                     <field name="can_compare_bill" invisible="1"/>
+                    <field name="can_post_analytic_cost" invisible="1"/>
                     <group>
                         <group string="Meter and tariff">
                             <field name="workorder_id"/>
@@ -165,6 +187,7 @@
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="measured_kwh"/>
                             <field name="energy_charge"/>
+                            <field name="analytic_line_id" invisible="not analytic_line_id"/>
                             <field name="baseline_charge" invisible="not has_baseline"/>
                             <field name="estimated_savings" invisible="not has_baseline"/>
                             <field name="baseline_note" invisible="has_baseline"/>
@@ -186,6 +209,8 @@
                     <p class="text-muted">The comparison prices the same metered workload at the original times. When a reading spans two prices, its kWh are split by time.</p>
                 </sheet>
                 <footer>
+                    <button name="action_open_analytic_post" type="object" string="Post analytic cost" class="btn-secondary"
+                            groups="analytic.group_analytic_accounting" invisible="not can_post_analytic_cost"/>
                     <button name="action_open_bill_check" type="object" string="Compare energy bill" class="btn-primary"
                             groups="mrp_grid_scheduler.group_grid_manager" invisible="not can_compare_bill"/>
                     <button string="Close" special="cancel" class="btn-secondary"/>

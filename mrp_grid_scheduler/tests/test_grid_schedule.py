@@ -483,6 +483,30 @@ class TestGridSchedule(TransactionCase):
         with patch.object(fields.Datetime, 'now', return_value=at(14)):
             self.assertEqual(wizard.action_import()['res_id'], result.id)
 
+    def test_post_analytic_energy_cost_once(self):
+        line, wizard = self.make_meter_import()
+        self.company.currency_id = self.tariff.currency_id
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        result = line.energy_result_ids.with_user(self.manager)
+        with self.assertRaises(AccessError):
+            result.action_open_analytic_post()
+        self.manager.group_ids = [Command.link(self.env.ref('analytic.group_analytic_accounting').id)]
+        plan = self.env['account.analytic.plan'].sudo().create({'name': 'Grid energy test'})
+        account = self.env['account.analytic.account'].sudo().create({
+            'name': 'Electricity test', 'plan_id': plan.id, 'company_id': self.company.id,
+        })
+        post = self.env['grid.energy.analytic.post'].with_user(self.manager).create({
+            'result_id': result.id, 'account_id': account.id,
+        })
+        post.action_post()
+        entry = result.analytic_line_id
+        self.assertTrue(entry)
+        self.assertEqual(entry.amount, -result.energy_charge)
+        self.assertEqual(entry[plan._column_name()], account)
+        post.action_post()
+        self.assertEqual(result.analytic_line_id, entry)
+
     def test_bill_comparison_uses_posted_untaxed_vendor_line(self):
         line, wizard = self.make_meter_import()
         with patch.object(fields.Datetime, 'now', return_value=at(14)):

@@ -42,6 +42,12 @@ class GridEnergyResult(models.Model):
         'account.move.line', readonly=True, ondelete='set null', check_company=True,
         groups='account.group_account_invoice',
     )
+    analytic_line_id = fields.Many2one(
+        'account.analytic.line', string='Analytic cost', readonly=True,
+        ondelete='restrict', check_company=True, groups='analytic.group_analytic_accounting',
+    )
+    can_post_analytic_cost = fields.Boolean(compute='_compute_can_post_analytic_cost',
+                                            groups='analytic.group_analytic_accounting')
     bill_checked_by = fields.Many2one('res.users', readonly=True)
     bill_checked_at = fields.Datetime(readonly=True)
     can_compare_bill = fields.Boolean(compute="_compute_can_compare_bill")
@@ -66,6 +72,30 @@ class GridEnergyResult(models.Model):
     def _compute_can_compare_bill(self):
         for result in self:
             result.can_compare_bill = not result.has_bill and len((result.evidence or {}).get('run_times', [])) == 1
+
+    @api.depends('analytic_line_id')
+    @api.depends_context('uid')
+    def _compute_can_post_analytic_cost(self):
+        is_manager = self.env.user.has_group(GRID_MANAGER)
+        for result in self:
+            result.can_post_analytic_cost = is_manager and not result.analytic_line_id
+
+    def _check_analytic_access(self):
+        self.ensure_one()
+        self.check_access('read')
+        if not (self.env.user.has_group(GRID_MANAGER)
+                and self.env.user.has_group('analytic.group_analytic_accounting')):
+            raise AccessError(_('A GridSync manager with Analytic Accounting access must post this cost.'))
+
+    def action_open_analytic_post(self):
+        self._check_analytic_access()
+        if self.analytic_line_id:
+            return self._open_result()
+        return {
+            'type': 'ir.actions.act_window', 'name': _('Post analytic energy cost'),
+            'res_model': 'grid.energy.analytic.post', 'view_mode': 'form', 'target': 'new',
+            'context': {'default_result_id': self.id},
+        }
 
     def action_open_bill_check(self):
         self.ensure_one()
@@ -407,4 +437,41 @@ class GridEnergyBillCheck(models.TransientModel):
             'bill_difference': currency.round(billed - result.energy_charge),
             'bill_checked_by': self.env.uid, 'bill_checked_at': fields.Datetime.now(),
         })
+        return result._open_result()
+
+class GridEnergyAnalyticPost(models.TransientModel):
+    _name = 'grid.energy.analytic.post'
+    _description = 'Post GridSync Analytic Energy Cost'
+
+    result_id = fields.Many2one('grid.energy.result', required=True, readonly=True, ondelete='cascade')
+    company_id = fields.Many2one(related='result_id.company_id', compute_sudo=False)
+    currency_id = fields.Many2one(related='result_id.currency_id', compute_sudo=False)
+    energy_charge = fields.Monetary(related='result_id.energy_charge', compute_sudo=False)
+    account_id = fields.Many2one('account.analytic.account', required=True)
+
+    def action_post(self):
+        self.ensure_one()
+        self.check_access('read')
+        result = self.result_id
+        result._check_analytic_access()
+        if not result.try_lock_for_update(allow_referencing=True):
+            raise UserError(_('This energy result is being updated. Try again shortly.'))
+        result.invalidate_recordset(['analytic_line_id'])
+        if result.analytic_line_id:
+            return result._open_result()
+        company = result.company_id
+        account = self.account_id
+        account.check_access('read')
+        if not account.active or (account.company_id and account.company_id != company):
+            raise UserError(_('Choose an active analytic account for this company.'))
+        if result.currency_id != company.currency_id:
+            raise UserError(_('This energy charge uses a different currency from the company.'))
+        entry = self.env['account.analytic.line'].with_context({}).with_company(company).create({
+            'name': _('GridSync electricity: %s', result.workorder_id.display_name),
+            'company_id': company.id,
+            'date': result.last_reading.date(),
+            'amount': -result.energy_charge,
+            account.plan_id._column_name(): account.id,
+        })
+        result.sudo().write({'analytic_line_id': entry.id})
         return result._open_result()
