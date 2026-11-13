@@ -199,12 +199,26 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(run.proposed_carbon_kg, 0)
         self.assertEqual(run.snapshot['carbon_price'], 1000)
 
+    def test_queue_setting_is_company_specific_and_admin_only(self):
+        self.assertEqual(self.company.grid_queue_threshold, 500)
+        self.env['res.config.settings'].create({
+            'company_id': self.company.id, 'grid_queue_threshold': 1,
+        })
+        self.assertEqual(self.company.grid_queue_threshold, 1)
+        self.assertEqual(self.other_company.grid_queue_threshold, 500)
+        with self.assertRaises(AccessError):
+            self.company.with_user(self.planner).write({'grid_queue_threshold': 0})
+        self.make_production([('Press', self.center, 30)])
+        run = self.make_run()
+        run.action_compute()
+        self.assertEqual(run.state, 'proposed')
+
     def test_queue_computes_without_applying(self):
         _production, (order,) = self.make_production([('Press', self.center, 30)])
         order.write({'date_start': at(8), 'date_finished': at(8, 30)})
         run = self.make_run()
-        with patch('odoo.addons.mrp_grid_scheduler.models.grid_schedule.QUEUE_THRESHOLD', 0):
-            run.action_compute()
+        self.company.sudo().grid_queue_threshold = 0
+        run.action_compute()
         self.assertEqual(run.state, 'queued')
         self.assertEqual(run.queued_by, self.planner)
         self.assertFalse(run.line_ids)
@@ -222,8 +236,8 @@ class TestGridSchedule(TransactionCase):
     def test_queue_stops_when_the_planner_loses_access(self):
         self.make_production([('Press', self.center, 30)])
         run = self.make_run()
-        with patch('odoo.addons.mrp_grid_scheduler.models.grid_schedule.QUEUE_THRESHOLD', 0):
-            run.action_compute()
+        self.company.sudo().grid_queue_threshold = 0
+        run.action_compute()
         self.assertEqual(run.state, 'queued')
         self.planner.sudo().active = False
         run.sudo()._compute_queued_proposal()

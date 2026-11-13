@@ -17,8 +17,6 @@ from ..services.scheduler import (
 
 _logger = logging.getLogger(__name__)
 
-QUEUE_THRESHOLD = 500
-
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
 INPUT_FIELDS = {'company_id', 'date_from', 'date_to', 'workcenter_ids', 'objective', 'carbon_price'}
 RESULT_FIELDS = {
@@ -200,7 +198,7 @@ class GridScheduleRun(models.Model):
         ], order='id', limit=MAX_JOBS + 1)
         if len(workorders) > MAX_JOBS:
             raise UserError(_('Choose fewer work centers or a shorter period. A run can include up to %s operations.', MAX_JOBS))
-        if allow_queue and len(workorders) > QUEUE_THRESHOLD:
+        if allow_queue and len(workorders) > self.company_id.sudo().grid_queue_threshold:
             self.sudo().write({'state': 'queued', 'queued_by': self.env.uid})
             self.env.ref('mrp_grid_scheduler.ir_cron_grid_schedule_queue').sudo()._trigger()
             return True

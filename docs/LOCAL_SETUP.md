@@ -75,7 +75,7 @@ For a work center on the Great Britain electricity grid, enable **Use GB carbon 
 
 Choose **GB cost and emissions** to account for both signals. Use a tariff for the same GB site in the company currency and enter the internal carbon price per tonne. GridSync adds the carbon charge when comparing placements and shows electricity cost and estimated emissions separately. An interval needs both signals to be usable.
 
-A proposal with more than 500 operations goes into the background queue. Refresh the proposal to see its result. The worker computes one proposal at a time using the requesting planner's company access. If the period expires or access changes while it waits, the proposal shows the failure and can be copied into a new draft.
+By default, proposals with more than 500 operations go into the background queue. An Odoo administrator can change the limit for each company under **GridSync > Settings > Scheduling**. Set it to zero to queue every proposal with operations. Refresh the proposal to see its result. The worker computes one proposal at a time using the requesting planner's company access. If the period expires or access changes while it waits, the proposal shows the failure and can be copied into a new draft.
 
 The local Odoo 19 load check used 2,000 test operations across 25 work centers. Queue submission took 0.28 seconds and the worker took 4.35 seconds to compute and save all 2,000 lines. The original booking dates stayed the same. These timings exclude test data setup and time waiting for cron to pick up the proposal.
 

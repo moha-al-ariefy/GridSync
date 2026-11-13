@@ -13,6 +13,12 @@
                             <field name="grid_auto_sync"/>
                         </setting>
                     </block>
+                    <block title="Scheduling">
+                        <setting id="grid_background_scheduling" company_dependent="1"
+                                 help="Proposals above this operation count run in the background. Set it to zero to queue every proposal with operations.">
+                            <field name="grid_queue_threshold"/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>
