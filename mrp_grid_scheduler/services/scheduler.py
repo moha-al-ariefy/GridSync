@@ -21,7 +21,7 @@ _logger = logging.getLogger(__name__)
 STEP = timedelta(minutes=15)
 EPOCH = datetime(2000, 1, 1)
 MAX_HORIZON = timedelta(days=14)
-MAX_JOBS = 500
+MAX_JOBS = 2_000
 MIN_DURATION = timedelta(seconds=1)
 COST_DIGITS = 6
 METHOD = 'greedy-15min-v1'
@@ -433,6 +433,7 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             fixed[jobs[key].workcenter].append(kept_booking(key))
 
     # Greedy pass in dependency order.
+    bookings = {key: intervals.copy() for key, intervals in fixed.items()}
     placed = {}
     results = {}
     for key in order:
@@ -443,15 +444,13 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             unscheduled[key] = 'predecessor'
             continue
         low = max([job.release] + [placed[predecessor].end for predecessor in job.predecessors])
-        busy = fixed[job.workcenter] + [
-            (placement.start, placement.end) for other, placement in placed.items()
-            if jobs[other].workcenter == job.workcenter
-        ]
+        busy = bookings[job.workcenter]
         best, reason, issue = _evaluate(centers[job.workcenter], job, durations[key], low, finish_by[key], busy)
         if not best:
             unscheduled[key] = reason
             continue
         placed[key] = best
+        busy.append((best.start, best.end))
         if not job.current_start:
             status, why = 'moved', 'unplanned'
         elif best.start == job.current_start and (not job.current_end or best.end == job.current_end):

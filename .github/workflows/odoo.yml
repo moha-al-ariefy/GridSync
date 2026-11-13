@@ -1,0 +1,38 @@
+name: Odoo tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gridsync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start PostgreSQL
+        run: |
+          docker network create gridsync-ci
+          docker volume create gridsync-odoo
+          docker run --detach --name gridsync-db --network gridsync-ci \
+            -e POSTGRES_USER=odoo -e POSTGRES_PASSWORD=odoo postgres:16
+          timeout 60 bash -c 'until docker exec gridsync-db pg_isready -h 127.0.0.1 -U odoo; do sleep 1; done'
+      - name: Install and test GridSync
+        run: |
+          docker run --rm --network gridsync-ci \
+            -e HOST=gridsync-db -e USER=odoo -e PASSWORD=odoo \
+            -v gridsync-odoo:/var/lib/odoo \
+            -v "$GITHUB_WORKSPACE/mrp_grid_scheduler:/mnt/extra-addons/mrp_grid_scheduler:ro" \
+            odoo:19.0 -d gridsync_ci -i mrp_grid_scheduler --without-demo \
+            --test-enable --test-tags /mrp_grid_scheduler --stop-after-init
+      - name: Test the module upgrade
+        run: |
+          docker run --rm --network gridsync-ci \
+            -e HOST=gridsync-db -e USER=odoo -e PASSWORD=odoo \
+            -v gridsync-odoo:/var/lib/odoo \
+            -v "$GITHUB_WORKSPACE/mrp_grid_scheduler:/mnt/extra-addons/mrp_grid_scheduler:ro" \
+            odoo:19.0 -d gridsync_ci -u mrp_grid_scheduler --stop-after-init --no-http

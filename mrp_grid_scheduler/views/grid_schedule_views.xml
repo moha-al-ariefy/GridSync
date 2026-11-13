@@ -155,10 +155,36 @@
             </search>
         </field>
     </record>
+    <record id="view_grid_schedule_run_pivot" model="ir.ui.view">
+        <field name="name">grid.schedule.run.pivot</field>
+        <field name="model">grid.schedule.run</field>
+        <field name="arch" type="xml">
+            <pivot string="Proposal activity" disable_linking="1">
+                <field name="state" type="row"/>
+                <field name="computed_at" type="col" interval="month"/>
+                <field name="proposed_cost" invisible="1"/>
+                <field name="current_cost" invisible="1"/>
+                <field name="lower_bound" invisible="1"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="view_grid_schedule_run_graph" model="ir.ui.view">
+        <field name="name">grid.schedule.run.graph</field>
+        <field name="model">grid.schedule.run</field>
+        <field name="arch" type="xml">
+            <graph string="Proposal activity" type="bar" disable_linking="1">
+                <field name="computed_at" interval="month"/>
+                <field name="state"/>
+                <field name="proposed_cost" invisible="1"/>
+                <field name="current_cost" invisible="1"/>
+                <field name="lower_bound" invisible="1"/>
+            </graph>
+        </field>
+    </record>
     <record id="action_grid_schedule_run" model="ir.actions.act_window">
         <field name="name">Schedule proposals</field>
         <field name="res_model">grid.schedule.run</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">list,form,pivot,graph</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a schedule proposal</p>
             <p>Choose a period and work centers. GridSync suggests lower-cost times without changing work orders.</p>
