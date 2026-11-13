@@ -27,7 +27,7 @@
                 <header>
                     <button name="action_compute" type="object" string="Compute proposal" class="btn-primary" invisible="state != 'draft' or not id"/>
                     <button name="action_review_apply" type="object" string="Review and apply" class="btn-primary"
-                            invisible="state != 'proposed' or not complete or not moved_count"/>
+                            invisible="state != 'proposed' or not moved_count"/>
                     <button name="action_review_revert" type="object" string="Review revert"
                             invisible="state != 'applied'"/>
                     <button name="action_new_run" type="object" string="New run with these settings" invisible="state == 'draft'"/>
@@ -49,7 +49,7 @@
                     </p>
                     <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
                         Some operations could not be scheduled. Any existing bookings for them stay in place.
-                        This proposal cannot be applied as a whole.
+                        Review and apply will move only the operations marked Moved.
                     </p>
                     <p class="alert alert-info" role="status" invisible="state != 'queued'">
                         This proposal is queued. Refresh this page after the scheduler has had time to run.
@@ -226,8 +226,8 @@
             <form>
                 <field name="operation" invisible="1"/>
                 <group><field name="run_id" options="{'no_open': True}"/></group>
-                <p invisible="operation != 'apply'">Apply the reviewed dates to the changed work orders? GridSync checks the bookings again before saving.</p>
-                <p invisible="operation != 'revert'">Restore the previous work-order dates? GridSync checks for new conflicts before saving.</p>
+                <p invisible="operation != 'apply'">Apply the reviewed dates to the operations marked Moved? GridSync checks the bookings again before saving.</p>
+                <p invisible="operation != 'revert'">Restore the previous dates of the operations moved by this proposal? GridSync checks for new conflicts before saving.</p>
                 <footer>
                     <button name="action_confirm" type="object" string="Apply schedule" class="btn-primary" invisible="operation != 'apply'"/>
                     <button name="action_confirm" type="object" string="Revert schedule" class="btn-primary" invisible="operation != 'revert'"/>

@@ -6,7 +6,7 @@ For a UAE factory, load the electricity tariff that applies to the site. Energy-
 
 ## Status
 
-The add-on supports automatic and manual price sync for five Energy-Charts zones, plus manual intervals, time-of-use rules, and tariff CSV imports. The scheduler suggests lower-cost times for open work orders and explains each result. Planners can review and apply a complete proposal, then restore the original bookings if the schedule still allows it.
+The add-on supports automatic and manual price sync for five Energy-Charts zones, plus manual intervals, time-of-use rules, and tariff CSV imports. The scheduler suggests lower-cost times for open work orders and explains each result. Planners can review and apply the proposed moves, then restore the original bookings if the schedule still allows it.
 
 The [roadmap](ROADMAP.md) covers the build order. The [build plan](docs/GridSync_Build_Plan.pdf) has the original idea and priorities, and [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) has the technical details and things to verify. See [local setup](docs/LOCAL_SETUP.md) for development and test instructions.
 

@@ -285,6 +285,42 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual((run.job_count, run.moved_count, run.unscheduled_count), (3, 1, 2))
         self.assertIn('88 of 96 price intervals', run.data_notes)
 
+    def test_partial_apply_and_revert_only_change_the_reviewed_moves(self):
+        self.env['grid.tariff.slot'].sudo().search([
+            ('source_id', '=', self.tariff.id), ('start_utc', '>=', at(6)), ('start_utc', '<', at(8)),
+        ]).unlink()
+        _production, (moved, finish) = self.make_production([
+            ('Move to the cheap window', self.center, 30),
+            ('Keep the booked finish', self.center, 30),
+        ])
+        moved.write({'date_start': at(9), 'date_finished': at(9, 30)})
+        finish.write({'date_start': at(14), 'date_finished': at(14, 30)})
+        _production, (retained,) = self.make_production([
+            ('Keep the booking without prices', self.center, 30),
+        ], deadline=at(7))
+        retained.write({'date_start': at(6), 'date_finished': at(6, 30)})
+        _production, (manual, skipped) = self.make_production([
+            ('Unplanned manual step', self.other_center, 30), ('Wait for manual step', self.center, 30),
+        ])
+
+        run = self.make_run()
+        run.action_compute()
+        lines = {line.workorder_id: line for line in run.line_ids}
+        self.assertEqual([lines[order].status for order in (moved, finish, retained, skipped)],
+                         ['moved', 'unchanged', 'unscheduled', 'unscheduled'])
+        self.assertFalse(run.complete)
+        self.assertEqual(run.action_review_apply()['target'], 'new')
+        untouched = run._snapshot_workorders(finish | retained | skipped | manual)
+        run._change_schedule('apply')
+        self.assertEqual(run.state, 'applied')
+        self.assertEqual((moved.date_start, moved.leave_id.date_to), (at(13), at(13, 30)))
+        self.assertEqual(run._snapshot_workorders(finish | retained | skipped | manual), untouched)
+
+        run._change_schedule('revert')
+        self.assertEqual(run.state, 'reverted')
+        self.assertEqual((moved.date_start, moved.leave_id.date_to), (at(9), at(9, 30)))
+        self.assertEqual(run._snapshot_workorders(finish | retained | skipped | manual), untouched)
+
     def test_working_hours_follow_daylight_saving_time(self):
         day = datetime(2030, 3, 31)  # Germany moves to summer time on this date.
         calendar = self.make_calendar('GridSync Berlin mornings', 'Europe/Berlin', [(8, 12)])
@@ -344,7 +380,7 @@ class TestGridSchedule(TransactionCase):
         run._change_schedule('apply')
         self.assertEqual(run.state, 'applied')
         self.assertEqual(run.applied_by, self.planner)
-        with self.assertRaisesRegex(UserError, 'Choose a complete proposal'):
+        with self.assertRaisesRegex(UserError, 'Choose a proposal with changes'):
             run._change_schedule('apply')
         for operation in cut | finish:
             line = lines[operation.id]

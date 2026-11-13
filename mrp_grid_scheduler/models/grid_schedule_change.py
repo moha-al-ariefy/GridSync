@@ -47,8 +47,8 @@ class GridScheduleRun(models.Model):
         if not self.env.user.has_group(GRID_PLANNER):
             raise AccessError(_('Only GridSync planners can change schedules.'))
         if operation == 'apply':
-            if self.state != 'proposed' or not self.complete or not self.moved_count:
-                raise UserError(_('Choose a complete proposal with changes to apply.'))
+            if self.state != 'proposed' or not self.moved_count:
+                raise UserError(_('Choose a proposal with changes to apply.'))
             if not self.snapshot or not self.snapshot.get('workorders'):
                 raise UserError(_('Compute a new proposal before applying this schedule.'))
         elif self.state != 'applied' or not self.application_snapshot:
@@ -129,21 +129,29 @@ class GridScheduleRun(models.Model):
         else:
             self._revert_reviewed_schedule(moved, workorders)
 
-    def _validate_schedule_dates(self, workorders, dates, start, end, require_prices):
+    def _schedule_date_inputs(self, workorders, start, end, require_prices):
         centers = self._check_workcenters(require_tariff=require_prices)
         inputs, _, sources, _components = self._workcenter_inputs(centers, workorders, start, end, include_prices=require_prices)
         jobs = self._job_inputs(workorders, start, include_penalties=require_prices)
+        return inputs, jobs, sources
+
+    def _validate_schedule_dates(self, inputs, jobs, dates, start, end, require_prices):
         try:
             check_placements(start, end, inputs, jobs, dates, require_prices)
         except ScheduleInputError as exc:
             raise UserError(str(exc)) from exc
-        return inputs, jobs, sources
 
     def _apply_reviewed_schedule(self, lines, moved, workorders, before, manufacturing):
         start, end = map(datetime.fromisoformat, self.snapshot['inputs']['horizon'])
-        proposed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in lines}
+        proposed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in moved}
         self._check_future_dates(moved, proposed)
-        inputs, jobs, sources = self._validate_schedule_dates(workorders, proposed, start, end, True)
+        inputs, jobs, sources = self._schedule_date_inputs(workorders, start, end, True)
+        if self.complete:
+            reviewed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in lines}
+            self._validate_schedule_dates(inputs, jobs, reviewed, start, end, True)
+        else:
+            move_inputs, move_jobs, _sources = self._schedule_date_inputs(moved.workorder_id, start, end, True)
+            self._validate_schedule_dates(move_inputs, move_jobs, proposed, start, end, True)
         saved_penalties = {job['key']: job.get('shift_penalty_per_hour', 0) for job in self.snapshot['inputs']['jobs']}
         if any(job.shift_penalty_per_hour != saved_penalties.get(job.key, 0) for job in jobs):
             raise UserError(_('Shift penalties or their exchange rates changed. Compute a new proposal.'))
@@ -155,7 +163,7 @@ class GridScheduleRun(models.Model):
             if self.objective != 'cost':
                 raise UserError(_('Carbon intensity, working hours or bookings changed. Compute a new proposal.'))
             raise UserError(_('Prices, exchange rates, working hours or bookings changed. Compute a new proposal.'))
-        self._validate_restore_dates(workorders, before)
+        self._validate_restore_dates(workorders, moved.workorder_id, before)
         self._write_schedule_dates(moved, proposed)
         self.sudo().write({
             'state': 'applied', 'applied_at': fields.Datetime.now(), 'applied_by': self.env.uid,
@@ -172,18 +180,32 @@ class GridScheduleRun(models.Model):
         return {int(key): (datetime.fromisoformat(value['start']), datetime.fromisoformat(value['end']))
                 for key, value in before.items() if value['start'] and value['end']}
 
-    def _validate_restore_dates(self, workorders, before):
+    def _validate_restore_dates(self, workorders, moved, before):
         restored = self._restore_dates(before)
+        moved_ids = set(moved.ids)
+        for order in moved:
+            if order.id in restored:
+                continue
+            for successor in order.needed_by_workorder_ids:
+                if successor.state in ('done', 'cancel'):
+                    continue
+                has_booking = successor.id in restored if successor.id in moved_ids else successor.date_start
+                if has_booking:
+                    raise UserError(_('Restoring %s would leave a booked operation without a planned predecessor.',
+                                      order.display_name))
         if not restored:
             return
         start, end = map(datetime.fromisoformat, self.snapshot['inputs']['horizon'])
-        self._validate_schedule_dates(workorders, restored, start, end, False)
+        checked = workorders if self.complete else moved
+        dates = {order.id: restored[order.id] for order in checked if order.id in restored}
+        inputs, jobs, _sources = self._schedule_date_inputs(checked, start, end, False)
+        self._validate_schedule_dates(inputs, jobs, dates, start, end, False)
 
     def _revert_reviewed_schedule(self, moved, workorders):
         before = self.application_snapshot['before']
         restored = self._restore_dates(before['workorders'])
         self._check_future_dates(moved, restored)
-        self._validate_restore_dates(workorders, before['workorders'])
+        self._validate_restore_dates(workorders, moved.workorder_id, before['workorders'])
         self._write_schedule_dates(moved, restored)
         for production in moved.workorder_id.production_id:
             old = before['manufacturing'][str(production.id)]
