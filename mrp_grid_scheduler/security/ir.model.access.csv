@@ -17,3 +17,6 @@ access_grid_energy_result_planner,grid.energy.result planner,model_grid_energy_r
 access_grid_energy_import_manager,grid.energy.import manager,model_grid_energy_import,group_grid_manager,1,1,1,1
 access_grid_energy_bill_check_manager,grid.energy.bill.check manager,model_grid_energy_bill_check,group_grid_manager,1,1,1,1
 access_grid_meter_batch_manager,grid.meter.batch manager,model_grid_meter_batch,group_grid_manager,1,0,0,0
+access_grid_carbon_day_planner,grid.carbon.day planner,model_grid_carbon_day,group_grid_planner,1,0,0,0
+access_grid_carbon_day_manager,grid.carbon.day manager,model_grid_carbon_day,group_grid_manager,1,1,1,0
+access_grid_carbon_interval_planner,grid.carbon.interval planner,model_grid_carbon_interval,group_grid_planner,1,0,0,0

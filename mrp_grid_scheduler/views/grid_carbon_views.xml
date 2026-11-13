@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_grid_carbon_day_list" model="ir.ui.view">
+        <field name="name">grid.carbon.day.list</field>
+        <field name="model">grid.carbon.day</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="day"/>
+                <field name="synced_at"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_grid_carbon_day_form" model="ir.ui.view">
+        <field name="name">grid.carbon.day.form</field>
+        <field name="model">grid.carbon.day</field>
+        <field name="arch" type="xml">
+            <form js_class="grid_record_form">
+                <header>
+                    <button name="action_sync" type="object" string="Sync carbon intensity"
+                            class="btn-primary" invisible="not id" groups="mrp_grid_scheduler.group_grid_manager"/>
+                </header>
+                <sheet>
+                    <p>Great Britain national electricity intensity from NESO. Each row covers 30 minutes. The published estimate and forecast are in grams of CO₂ per kWh.</p>
+                    <p><a href="https://api.carbonintensity.org.uk/" target="_blank" rel="noopener noreferrer">NESO Carbon Intensity API</a> · CC BY 4.0</p>
+                    <group>
+                        <field name="day" readonly="id"/>
+                        <field name="synced_at"/>
+                        <field name="company_id" readonly="id" groups="base.group_multi_company"/>
+                    </group>
+                    <field name="interval_ids">
+                        <list create="0" edit="0" delete="0">
+                            <field name="start_utc" string="Interval start"/>
+                            <field name="has_forecast" optional="hide"/>
+                            <field name="forecast" invisible="not has_forecast"/>
+                            <field name="has_actual" optional="hide"/>
+                            <field name="actual" invisible="not has_actual"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_grid_carbon_day" model="ir.actions.act_window">
+        <field name="name">GB carbon intensity</field>
+        <field name="res_model">grid.carbon.day</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <menuitem id="menu_grid_carbon_day" name="GB carbon intensity" parent="menu_grid_root"
+              action="action_grid_carbon_day" groups="group_grid_planner" sequence="85"/>
+</odoo>
