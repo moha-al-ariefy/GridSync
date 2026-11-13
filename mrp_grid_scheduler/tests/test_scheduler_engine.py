@@ -71,6 +71,29 @@ class TestSchedulerEngine(BaseCase):
         self.assertTrue(bounded.complete)
         self.assertGreater(bounded.proposed_cost, result.proposed_cost)
 
+    def test_improves_booked_chains_when_the_greedy_pass_cannot(self):
+        end = at(4)
+        lead_prices = prices(200, {DAY: 100, at(1): 30, at(3): 0}, end=end)
+        finish_prices = prices(200, {at(2): 100, at(2, 15): 10}, end=end)
+        centers, jobs = [], []
+        for key in range(1, 9, 2):
+            centers.extend([center(key, price_map=lead_prices), center(key + 1, price_map=finish_prices)])
+            jobs.extend([
+                job(key, minutes=15, workcenter=key, current_start=DAY, current_end=at(0, 15)),
+                job(key + 1, minutes=15, workcenter=key + 1, predecessors=(key,),
+                    current_start=at(2), current_end=at(2, 15)),
+            ])
+
+        result = schedule(DAY, end, centers, jobs)
+        self.assertTrue(result.complete)
+        self.assertEqual(result.method, scheduler.BASELINE_METHOD)
+        self.assertAlmostEqual(result.current_cost, 2.0)
+        self.assertAlmostEqual(result.proposed_cost, 0.4)
+        self.assertEqual([line.proposed.start for line in result.jobs.values()], [at(1), at(2, 15)] * 4)
+        times = {key: (line.proposed.start, line.proposed.end) for key, line in result.jobs.items()}
+        self.assertEqual(scheduler.check_placements(DAY, end, centers, jobs, times),
+                         {key: line.proposed for key, line in result.jobs.items()})
+
     def test_moves_job_to_lowest_cost_window(self):
         result = schedule(DAY, END, [center(price_map=prices(100, hourly(2, 4, 20)))],
                           [job(1, current_start=at(8))])

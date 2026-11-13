@@ -25,6 +25,7 @@ MAX_JOBS = 2_000
 MIN_DURATION = timedelta(seconds=1)
 COST_DIGITS = 6
 METHOD = 'greedy-15min-v1'
+BASELINE_METHOD = 'baseline-improvement-15min-v1'
 EXACT_METHOD = 'candidate-search-15min-v1'
 BOUNDED_METHOD = 'bounded-candidate-search-15min-v1'
 MAX_SEARCH_NODES = 10_000
@@ -327,6 +328,26 @@ def _protect_retained_bookings(jobs, successors, kept_booking, placed, unschedul
             retain(successor, 'predecessor')
 
 
+def _improve_baseline(order, jobs, centers, durations, finish_by, successors, baseline):
+    placed = baseline.copy()
+    busy = {key: list(center.busy) for key, center in centers.items()}
+    for key, placement in baseline.items():
+        busy[jobs[key].workcenter].append((placement.start, placement.end))
+
+    for key in reversed(order):
+        job = jobs[key]
+        old = placed[key]
+        low = max([job.release] + [placed[parent].end for parent in job.predecessors])
+        high = min([finish_by[key]] + [placed[child].start for child in successors[key]])
+        bookings = busy[job.workcenter]
+        bookings.remove((old.start, old.end))
+        best, _, _ = _evaluate(centers[job.workcenter], job, durations[key], low, high, bookings)
+        if best and best.cost < old.cost:
+            placed[key] = best
+        bookings.append((placed[key].start, placed[key].end))
+    return placed
+
+
 def _search_placements(order, jobs, centers, durations, finish_by, incumbent):
     placed = {}
     busy = {key: list(center.busy) for key, center in centers.items()}
@@ -484,6 +505,17 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
         results = {key: ('unchanged', 'baseline') for key in baseline}
 
     method = METHOD
+    if baseline and any(successors.values()) and proposed_cost > math.fsum(bounds.values()):
+        improved = _improve_baseline(order, jobs, centers, durations, finish_by, successors, baseline)
+        improved_cost = math.fsum(item.cost for item in improved.values())
+        if improved_cost < proposed_cost:
+            method = BASELINE_METHOD
+            placed, proposed_cost = improved, improved_cost
+            results = {
+                key: ('unchanged', 'baseline') if placement == baseline[key] else ('moved', 'optimized')
+                for key, placement in improved.items()
+            }
+
     if can_search:
         improved, exhaustive = _search_placements(
             order, jobs, centers, durations,

@@ -10,7 +10,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 
 from ..services.scheduler import (
-    BOUNDED_METHOD, EXACT_METHOD, MAX_HORIZON, MAX_JOBS, METHOD, STEP, JobInput, ScheduleInputError, WorkcenterInput,
+    BASELINE_METHOD, BOUNDED_METHOD, EXACT_METHOD, MAX_HORIZON, MAX_JOBS, METHOD, STEP, JobInput, ScheduleInputError, WorkcenterInput,
     ceil_slot, dump_inputs, floor_slot, schedule,
 )
 
@@ -126,6 +126,7 @@ class GridScheduleRun(models.Model):
     def _compute_method_label(self):
         labels = {
             METHOD: _('Greedy scheduling'),
+            BASELINE_METHOD: _('Improved from existing bookings'),
             EXACT_METHOD: _('Best schedule across the available start times'),
             BOUNDED_METHOD: _('Best schedule found before the search limit'),
         }
