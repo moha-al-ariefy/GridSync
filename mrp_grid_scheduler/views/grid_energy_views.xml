@@ -5,7 +5,6 @@
         <field name="model">mrp.workorder</field>
         <field name="inherit_id" ref="mrp.mrp_production_workorder_form_view_inherit"/>
         <field name="arch" type="xml">
-            <xpath expr="/form" position="attributes"><attribute name="js_class">grid_record_form</attribute></xpath>
             <xpath expr="//div[@name='button_box']" position="inside">
                 <field name="grid_energy_result_ids" invisible="1" groups="mrp_grid_scheduler.group_grid_planner"/>
                 <button name="action_open_grid_energy_result" type="object" string="Energy result"

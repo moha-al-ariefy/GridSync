@@ -5,9 +5,6 @@
         <field name="model">mrp.workcenter</field>
         <field name="inherit_id" ref="mrp.mrp_workcenter_view"/>
         <field name="arch" type="xml">
-            <xpath expr="/form" position="attributes">
-                <attribute name="js_class">grid_record_form</attribute>
-            </xpath>
             <xpath expr="//notebook/page[@name='general_info']" position="after">
                 <page string="Electricity" name="grid_energy" groups="mrp_grid_scheduler.group_grid_planner">
                     <field name="grid_energy_can_edit" invisible="1"/>
@@ -48,10 +45,33 @@
             </xpath>
         </field>
     </record>
+    <record id="view_workcenter_form_grid_action" model="ir.ui.view">
+        <field name="name">mrp.workcenter.form.grid.action</field>
+        <field name="model">mrp.workcenter</field>
+        <field name="inherit_id" ref="mrp.mrp_workcenter_view"/>
+        <field name="mode">primary</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <xpath expr="/form" position="attributes">
+                <attribute name="js_class">grid_record_form</attribute>
+            </xpath>
+        </field>
+    </record>
     <record id="action_grid_workcenters" model="ir.actions.act_window">
         <field name="name">Work centers</field>
         <field name="res_model">mrp.workcenter</field>
         <field name="view_mode">list,form</field>
+    </record>
+    <record id="action_grid_workcenters_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_workcenter_form_grid_action"/>
+        <field name="act_window_id" ref="action_grid_workcenters"/>
+    </record>
+    <record id="action_grid_workcenters_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">list</field>
+        <field name="act_window_id" ref="action_grid_workcenters"/>
     </record>
     <menuitem id="menu_grid_workcenters" name="Work centers" parent="menu_grid_root"
               action="action_grid_workcenters" groups="group_grid_planner" sequence="15"/>

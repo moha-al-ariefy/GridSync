@@ -122,7 +122,7 @@ The Phase 6 local restore rehearsal used an Odoo ZIP with its filestore. All 9 p
 
 ## Test the full workflow in Odoo
 
-Use **New** from a list. **Save** on a new record takes you back to the list, where you can reopen it to generate prices, compute a proposal, or confirm a manufacturing order. When editing an existing record, **Save** keeps you on that record. Save the bill of materials before adding its first operation. The empty Operations tab has an Add Operation button.
+In GridSync, use **New** from a list. **Save** on a new record takes you back to the list, where you can reopen the record. **Save** on an existing record keeps you there. In Manufacturing, use Odoo's cloud icon to save the bill of materials before adding its first operation. The empty **Operations** tab has an **Add Operation** button.
 
 Use an isolated Odoo 19 database with GridSync installed or upgraded and work orders enabled in Manufacturing. Sign in as a GridSync Manager with Manufacturing Administrator access. The rates and readings below are test inputs. Use one work center and keep other bookings out of its test window.
 

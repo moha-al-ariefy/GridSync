@@ -1,3 +1,5 @@
+from lxml import etree
+
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
@@ -20,6 +22,29 @@ class TestGridSite(TransactionCase):
         cls.outsider = new_test_user(cls.env, login='grid_test_outsider', groups='base.group_user')
         cls.site_a = cls.env['grid.site'].create({'name': 'Factory A', 'company_id': cls.company_a.id})
         cls.site_b = cls.env['grid.site'].create({'name': 'Factory B', 'company_id': cls.company_b.id})
+
+    def test_custom_save_controls_are_scoped_to_the_grid_workcenter_action(self):
+        native_forms = {
+            'mrp.workcenter': 'mrp.mrp_workcenter_view',
+            'mrp.production': 'mrp.mrp_production_form_view',
+            'mrp.workorder': 'mrp.mrp_production_workorder_form_view_inherit',
+            'mrp.bom': 'mrp.mrp_bom_form_view',
+            'mrp.routing.workcenter': 'mrp.mrp_routing_workcenter_form_view',
+            'product.template': 'product.product_template_only_form_view',
+        }
+        manufacturer = new_test_user(self.env, login='native_mrp_user', groups='mrp.group_mrp_user')
+        for user in (self.planner, manufacturer):
+            for model, xml_id in native_forms.items():
+                view = self.env[model].with_user(user).get_view(self.env.ref(xml_id).id, 'form')
+                self.assertNotEqual(etree.fromstring(view['arch']).get('js_class'), 'grid_record_form', xml_id)
+
+        action = self.env.ref('mrp_grid_scheduler.action_grid_workcenters')
+        form = self.env.ref('mrp_grid_scheduler.view_workcenter_form_grid_action')
+        self.assertEqual(action.views, [(False, 'list'), (form.id, 'form')])
+        arch = self.env['mrp.workcenter'].with_user(self.planner).get_view(form.id, 'form')['arch']
+        root = etree.fromstring(arch)
+        self.assertEqual(root.get('js_class'), 'grid_record_form')
+        self.assertTrue(root.xpath("//page[@name='grid_energy']"))
 
     def test_planner_can_create_and_update_site(self):
         sites = self.env['grid.site'].with_user(self.planner)

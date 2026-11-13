@@ -16,7 +16,6 @@
         'views/grid_schedule_views.xml',
         'views/grid_energy_views.xml',
         'views/grid_carbon_views.xml',
-        'views/mrp_form_views.xml',
         'data/grid_tariff_cron.xml',
     ],
     'assets': {

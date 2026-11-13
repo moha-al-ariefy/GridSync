@@ -94,7 +94,7 @@ GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply
 
 The scheduler now tries improving existing bookings one at a time for multi-step routes. A generated 500-operation check with four-step routes kept every operation feasible and reduced the proposed cost from 67.70 to 39.40. Energy-Charts batches existing interval updates by price. Automatic sync keeps the five-minute setting.
 
-- [ ] Keep custom Save and Discard controls on GridSync actions. Check native Manufacturing, Products and Work Orders with and without GridSync permissions.
+- [x] Keep custom Save and Discard controls on GridSync actions. Check native Manufacturing, Products and Work Orders with and without GridSync permissions.
 - [ ] Link site records to work centers and their tariffs so planners can filter runs and results by factory.
 - [ ] Review partial Apply and Revert with unchanged, unscheduled and dependent operations in the same proposal. Test the exact set of bookings that will move and can be restored.
 - [ ] Allow unrelated booking and leave edits after Compute when the reviewed schedule and its revert dates still pass live validation. Keep concurrency checks for the operations that move.
