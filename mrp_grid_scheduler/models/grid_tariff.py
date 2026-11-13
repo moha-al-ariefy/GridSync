@@ -7,7 +7,7 @@ import requests
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
-from ..services.energy_charts import PriceDataError, parse_prices
+from ..services.energy_charts import ENERGY_CHARTS_MARKETS, PriceDataError, parse_prices
 
 
 ENERGY_CHARTS_URL = 'https://api.energy-charts.info/v2/price'
@@ -25,8 +25,12 @@ class GridTariffSource(models.Model):
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
     source_type = fields.Selection([
         ('manual', 'Manual intervals'), ('manual_tou', 'Time-of-use rules'),
-        ('csv', 'CSV import'), ('energy_charts', 'Energy-Charts DE-LU'),
+        ('csv', 'CSV import'), ('energy_charts', 'Energy-Charts day-ahead'),
     ], required=True, default='manual')
+    energy_charts_market = fields.Selection(
+        [(key, label) for key, (label, _tz) in ENERGY_CHARTS_MARKETS.items()],
+        string='Market', default='DE-LU',
+    )
     currency_id = fields.Many2one('res.currency', required=True, default=lambda self: self.env.company.currency_id)
     timezone = fields.Char(required=True, default='Asia/Dubai')
     source_reference = fields.Char(help='The tariff document or data source reference.')
@@ -38,25 +42,25 @@ class GridTariffSource(models.Model):
     license_text = fields.Char(readonly=True, copy=False)
     active = fields.Boolean(default=True)
 
-    @api.onchange('source_type')
+    @api.onchange('source_type', 'energy_charts_market')
     def _onchange_source_type(self):
         if self.source_type == 'energy_charts':
-            self.timezone = 'Europe/Berlin'
+            self.timezone = ENERGY_CHARTS_MARKETS[self.energy_charts_market or 'DE-LU'][1]
             self.currency_id = self.env.ref('base.EUR')
             self.source_reference = ENERGY_CHARTS_URL
             self.attribution = 'Energy-Charts.info, Bundesnetzagentur | SMARD.de, CC BY 4.0'
 
-    @api.constrains('timezone', 'source_type', 'currency_id', 'source_reference')
+    @api.constrains('timezone', 'source_type', 'currency_id', 'source_reference', 'energy_charts_market')
     def _check_source_settings(self):
         for source in self:
             try:
                 pytz.timezone(source.timezone)
             except (pytz.UnknownTimeZoneError, ValueError, TypeError) as exc:
                 raise ValidationError(_('Use a valid timezone, such as Asia/Dubai.')) from exc
-            if source.source_type == 'energy_charts' and (
-                source.timezone != 'Europe/Berlin' or source.currency_id.name != 'EUR'
-            ):
-                raise ValidationError(_('Energy-Charts DE-LU prices need the Europe/Berlin timezone and EUR.'))
+            if source.source_type == 'energy_charts':
+                market = ENERGY_CHARTS_MARKETS.get(source.energy_charts_market)
+                if not market or source.timezone != market[1] or source.currency_id.name != 'EUR':
+                    raise ValidationError(_('Select an Energy-Charts market and use its timezone and EUR.'))
             if not source.source_reference or not source.source_reference.strip():
                 raise ValidationError(_('Add a source reference for this tariff.'))
 
@@ -70,6 +74,10 @@ class GridTariffSource(models.Model):
                 values.update({'last_sync_at': False, 'generated_at': False, 'license_text': False})
             values.setdefault('source_type', default_type)
             if values['source_type'] == 'energy_charts':
+                market = values.setdefault('energy_charts_market', 'DE-LU')
+                if market in ENERGY_CHARTS_MARKETS:
+                    values.setdefault('timezone', ENERGY_CHARTS_MARKETS[market][1])
+                    values.setdefault('currency_id', self.env.ref('base.EUR').id)
                 values['source_reference'] = ENERGY_CHARTS_URL
                 values['attribution'] = 'Energy-Charts.info, Bundesnetzagentur | SMARD.de, CC BY 4.0'
         return super().create(values_list)
@@ -83,6 +91,11 @@ class GridTariffSource(models.Model):
             raise AccessError(_('Sync metadata can only be changed by a sync.'))
         if not self.env.su and {'source_reference', 'attribution'}.intersection(values) and self.filtered(lambda s: s.source_type == 'energy_charts'):
             raise AccessError(_('Energy-Charts source details are set by the provider.'))
+        if 'energy_charts_market' in values and any(
+            source.source_type == 'energy_charts' and source.energy_charts_market != values['energy_charts_market']
+            for source in self
+        ):
+            raise UserError(_('Create a new tariff source to use a different market.'))
         protected = {'source_type', 'company_id', 'currency_id', 'timezone'}
         if protected.intersection(values) and any(self.mapped('slot_ids')):
             raise UserError(_('Create a new tariff source instead of changing settings for existing intervals.'))
@@ -137,18 +150,34 @@ class GridTariffSource(models.Model):
             ])
             if not self:
                 return '', 'skipped'
-        # The API limit applies across companies.
         logs = self.env['grid.tariff.sync'].sudo()
-        previous = logs.search([('provider_type', '=', 'energy_charts')], order='started_at desc, id desc', limit=1)
-        if previous and previous.next_allowed_at and previous.next_allowed_at > now:
-            return _('Please wait before requesting prices again.'), 'busy'
+        if logs.search_count([
+            ('provider_type', '=', 'energy_charts'), ('state', '=', 'failed'),
+            ('message', '=', 'Rate limit reached.'), ('next_allowed_at', '>', now),
+        ], limit=1):
+            return _('The data provider asked GridSync to wait before trying again.'), 'busy'
+        outcomes = []
+        for market, sources in self.grouped('energy_charts_market').items():
+            if logs.search_count([
+                ('provider_type', '=', 'energy_charts'),
+                ('source_id.energy_charts_market', '=', market), ('next_allowed_at', '>', now),
+            ], limit=1):
+                outcomes.append((_('Please wait before requesting prices again.'), 'busy'))
+                continue
+            outcome = sources._fetch_energy_charts_market(market, now, logs)
+            outcomes.append(outcome)
+            if outcome[1] == 'warning':
+                break
+        return next((result for result in outcomes if result[1] == 'success'), outcomes[-1])
+
+    def _fetch_energy_charts_market(self, market, now, logs):
         logs = logs.create([{
             'source_id': source.id, 'provider_type': 'energy_charts', 'started_at': now,
             'next_allowed_at': now + timedelta(seconds=30), 'state': 'failed',
         } for source in self])
         try:
             with requests.get(
-                ENERGY_CHARTS_URL, params={'bzn': 'DE-LU'}, stream=True,
+                ENERGY_CHARTS_URL, params={'bzn': market}, stream=True,
                 allow_redirects=False, timeout=(4, 12),
                 headers={'User-Agent': 'GridSync-MRP/0.1'},
             ) as response:
@@ -164,7 +193,7 @@ class GridTariffSource(models.Model):
                     body.extend(chunk)
                     if len(body) > MAX_RESPONSE_BYTES:
                         raise PriceDataError('The data response is too large.')
-                parsed = parse_prices(json.loads(body))
+                parsed = parse_prices(json.loads(body), market)
         except (requests.RequestException, ValueError, UnicodeError, PriceDataError):
             logs.write({'message': 'The price data could not be fetched or validated.'})
             return _('Price sync failed. The previous data is still available.'), 'danger'

@@ -11,7 +11,9 @@ This setup is for the Odoo 19 workshop installation on Windows. Keep it separate
 
 ## Install GridSync for development
 
-Run the installed Odoo Python and `odoo-bin` from the workshop server directory. Pass the existing Odoo configuration with `-c`, the workshop add-on directories plus this repository with `--addons-path`, and the development database with `-d`. Install the module with `-i mrp_grid_scheduler --without-demo=all --stop-after-init --no-http`.
+Run the installed Odoo Python and `odoo-bin` from the workshop server directory. Pass the existing Odoo configuration with `-c`, the workshop add-on directories plus this repository with `--addons-path`, and the development database with `-d`. Install the module with `-i mrp_grid_scheduler --without-demo --stop-after-init --no-http`.
+
+GridSync installs Odoo Manufacturing and Invoicing as dependencies. On an existing database, take a backup and try the upgrade on an isolated copy first. Confirm the Invoicing add-on is available on the server, then upgrade GridSync with `-u mrp_grid_scheduler --stop-after-init --no-http`.
 
 The workshop installation normally includes the Python packages listed in [requirements.txt](../requirements.txt). For a separate installation, use the same Python environment that runs Odoo and keep its version constraints.
 
@@ -23,13 +25,13 @@ For the loopback-only Windows preview, use `--limit-time-real=0 --limit-time-rea
 
 ## Run the tests
 
-On a new test database, install with `-i mrp_grid_scheduler --without-demo=all --test-enable --test-tags /mrp_grid_scheduler --stop-after-init --no-http`. To repeat the tests against that isolated database, use `-u mrp_grid_scheduler` instead of `-i`. Check the Odoo log and process exit code; the test users and records are test fixtures, not customer data.
+On a new test database, install with `-i mrp_grid_scheduler --without-demo --test-enable --test-tags /mrp_grid_scheduler --stop-after-init --no-http`. To repeat the tests against that isolated database, use `-u mrp_grid_scheduler` instead of `-i`. Check the Odoo log and process exit code; the test users and records are test fixtures, not customer data.
 
 ## First steps in GridSync
 
 Give a manufacturing user the GridSync Planner role, or use the GridSync Manager role for site administration. Open GridSync, create a site and select its work centers. Planner access is limited to allowed companies; only a manager can delete a site.
 
-Under Tariffs, a GridSync Manager can add an Energy-Charts DE-LU source and select **Sync prices**. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
+Under Tariffs, a GridSync Manager can choose **Energy-Charts day-ahead**, select a **Market**, save, and select **Sync prices**. Germany and Luxembourg, Austria, Belgium, France, and the Netherlands use the same connector. Create a separate source for each market. Use these wholesale prices for site costs only if the site contract follows that market. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
 
 Automatic sync is on by default for each company. Odoo checks every five minutes while its scheduled actions are running. Opening Overview or Tariffs also checks for a refresh if the last attempt was at least five minutes ago. An Odoo administrator can turn it off under **GridSync > Settings**. GridSync managers can still use **Sync prices**.
 
@@ -63,6 +65,10 @@ GridSync includes ready and waiting work orders from confirmed manufacturing ord
 
 Each line shows the current and proposed times, estimated energy and cost, and why the operation moved, stayed or could not be scheduled. The proposal shows current costs when the existing bookings are feasible and covered by prices. It keeps a feasible current schedule if the heuristic cannot find a cheaper complete one. A complete proposal also shows a lower bound. The lower bound assumes each operation gets its cheapest time without competing for it. The run saves the data used and cannot be recomputed. Select **New run with these settings** to try again. An operation that keeps its booking still blocks that time and constrains dependent operations. Computing a proposal leaves work orders in place.
 
+For two to six operations within one day, GridSync can check combinations of candidate start times. Look for **Search result** on the proposal. A completed search proves the best cost within those candidate times. If the search hits its limit, the proposal keeps the best complete schedule found so far.
+
+If work centers in one proposal use different tariff currencies, GridSync shows proposal costs in the company currency. It uses the Odoo exchange rate dated on or before the start of the proposal window. The proposal notes show the rate and its date. Add a missing rate in Odoo before computing, and recompute if a rate changes before Apply. Saved meter results use the original site tariff currency.
+
 ## Apply or revert a proposal
 
 For a complete proposal with moves, review the dates and costs, then select **Review and apply** and confirm. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
@@ -81,6 +87,19 @@ Uploading the same readings again opens the saved result. A second import with d
 
 The bill comparison is optional. Enter the energy-charge amount only when the bill line covers the same meter and continuous period as the CSV. Leave demand charges, taxes, and fixed fees out. Keep account and meter numbers out of references shared outside the company.
 
+
+If the bill arrives later, open the saved **Energy result** as a GridSync manager and choose **Compare energy bill**. Enter the energy-only amount and dates for the same meter and exact continuous period. The result keeps the original calculated charge and records who saved the comparison and when. If you have Odoo Billing access, select **Use a posted vendor bill line** to use its untaxed subtotal. Choose the energy-only line for the same meter. Check the displayed vendor, invoice date, and untaxed subtotal, then enter the exact metered period before saving. GridSync saves the comparison without posting or editing a bill.
+
+## Receive readings from a meter gateway
+
+1. In Odoo, create a dedicated internal integration user for the site company. Give it **GridSync / Meter gateway** and assign its work centers on the **GridSync meter gateway** tab. Give the gateway an expiring API key and keep the key in its secret store. Use HTTPS on the target Odoo installation.
+2. Configure the gateway to POST to `/json/2/grid.meter.batch/submit_readings` with the Odoo bearer key and the database header if the host needs it. The JSON body has four named fields: `workcenter_id` (integer Odoo ID), `meter_reference` (stable meter identifier), `batch_reference` (stable identifier for the delivery), and `csv_text` (the interval readings as a UTF-8 string with header `start,end,kwh`). Submit one batch covering the operation's productive intervals. See [Odoo JSON-2](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html) for request headers and access.
+3. Save the returned batch ID in the gateway's delivery log. In Odoo, open **GridSync > Meter batches** to check the meter, work center, covered times and received time. A retry with the same reference and readings returns the same ID. A reused reference with different readings is rejected.
+4. On an applied schedule with a completed operation, open **Import readings**, choose **Meter gateway**, and select the batch. Confirm that the meter covers the operation. The same coverage, tariff and overlap checks apply as for an uploaded file. The saved energy result shows the gateway batch reference so the planner can trace it back to the delivery log.
+
+The meter gateway needs to measure and timestamp intervals before sending them. Check the first device's clock, meter assignment, upload retries, and matching Odoo run times on the site copy before enabling it on the live installation.
+
+
 ## First site pilot
 
 1. Start on a copy of the site's Odoo database. Pick one work center with a dedicated meter and check its operating power, calendar, and tariff against the site's current rate schedule. Confirm that prices cover both the original and proposed times.
@@ -88,6 +107,8 @@ The bill comparison is optional. Enter the energy-charge amount only when the bi
 3. Check the first site's meter export against a finished operation's Odoo run log. The intervals must cover the logged run times exactly. If the export only has fixed 15-minute buckets and the job starts or ends mid-bucket, check whether the site can export matching readings. Keep the meter check open until the site can supply them.
 4. Compare the imported kWh with the meter export. Independently price the readings using the verified site tariff and check the original-time estimate separately. Use a bill charge only when it covers the same meter and period. Have the planner sign off on the tariff, meter result, and Apply and Revert rehearsal. Record the tariff revision, dates, planner, and any differences in the site's own system.
 5. On the target installation, restore a backup to an isolated copy and confirm that the schedules and meter results open. Repeat Apply and Revert at the site's normal workload and note the timings and any retry messages. Trigger a controlled failure on the copy and confirm that the person responsible receives it through the site's monitoring setup. The local rehearsal covered 120 test work orders. Use the target site's workload for sign-off.
+
+The Phase 6 local restore rehearsal used an Odoo ZIP with its filestore. All 9 proposals, 2 meter results (including a saved bill comparison), and 1 test gateway batch matched the source database. A second restore on an isolated copy verified that a posted test vendor bill, its bill line, and the linked GridSync comparison survived together. Repeat these checks on the target before signing off. On Windows, point Odoo's `pg_path` to the PostgreSQL `bin` directory if it cannot find `pg_dump`.
 
 ## Test the full workflow in Odoo
 

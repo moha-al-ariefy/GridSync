@@ -14,6 +14,53 @@
             </xpath>
         </field>
     </record>
+    <record id="view_grid_meter_gateway_user" model="ir.ui.view">
+        <field name="name">res.users.grid.meter.gateway</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="GridSync meter gateway" groups="base.group_system">
+                    <group><field name="grid_meter_workcenter_ids" widget="many2many_tags"
+                                  options="{'no_create': True, 'no_open': True}"/></group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_grid_meter_batch_list" model="ir.ui.view">
+        <field name="name">grid.meter.batch.list</field>
+        <field name="model">grid.meter.batch</field>
+        <field name="arch" type="xml">
+            <list string="Meter batches" create="0" edit="0" delete="0">
+                <field name="name" string="Batch reference"/>
+                <field name="meter_reference"/>
+                <field name="workcenter_id"/>
+                <field name="first_reading"/>
+                <field name="last_reading"/>
+                <field name="create_date" string="Received at"/>
+                <field name="received_by" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_grid_meter_batch_search" model="ir.ui.view">
+        <field name="name">grid.meter.batch.search</field>
+        <field name="model">grid.meter.batch</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name" string="Batch reference"/>
+                <field name="meter_reference"/>
+                <field name="workcenter_id"/>
+            </search>
+        </field>
+    </record>
+    <record id="action_grid_meter_batches" model="ir.actions.act_window">
+        <field name="name">Meter batches</field>
+        <field name="res_model">grid.meter.batch</field>
+        <field name="view_mode">list</field>
+    </record>
+    <menuitem id="menu_grid_meter_batches" name="Meter batches" parent="menu_grid_root"
+              action="action_grid_meter_batches" groups="group_grid_manager" sequence="80"/>
     <record id="view_grid_energy_import_form" model="ir.ui.view">
         <field name="name">grid.energy.import.form</field>
         <field name="model">grid.energy.import</field>
@@ -24,12 +71,20 @@
                 <group>
                     <field name="line_id" invisible="1"/>
                     <field name="tariff_id" domain="[('id', 'in', tariff_ids)]" options="{'no_open': True, 'no_create': True}"/>
-                    <field name="meter_reference" string="Meter reference" placeholder="Press 2 submeter export"/>
+                    <field name="workcenter_id" invisible="1"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="reading_source"/>
+                    <field name="gateway_batch_id" invisible="reading_source != 'gateway'"
+                           required="reading_source == 'gateway'"
+                           domain="[('company_id', '=', company_id), ('workcenter_id', '=', workcenter_id)]"
+                           options="{'no_open': True, 'no_create': True}"/>
+                    <field name="meter_reference" invisible="reading_source != 'csv'" required="reading_source == 'csv'"
+                           placeholder="Press 2 submeter export"/>
                     <field name="csv_filename" invisible="1"/>
-                    <field name="csv_file" string="Meter CSV" filename="csv_filename"/>
+                    <field name="csv_file" string="Meter CSV" filename="csv_filename" invisible="reading_source != 'csv'" required="reading_source == 'csv'"/>
                     <field name="dedicated_meter"/>
                 </group>
-                <p class="text-muted">Use <code>start,end,kwh</code> and include the UTC offset on both timestamps. Readings must cover the Odoo run times.</p>
+                <p class="text-muted" invisible="reading_source != 'csv'">Use <code>start,end,kwh</code> and include the UTC offset on both timestamps. Readings must cover the Odoo run times.</p>
                 <group>
                     <field name="compare_bill"/>
                 </group>
@@ -47,6 +102,46 @@
             </form>
         </field>
     </record>
+    <record id="view_grid_energy_bill_check_form" model="ir.ui.view">
+        <field name="name">grid.energy.bill.check.form</field>
+        <field name="model">grid.energy.bill.check</field>
+        <field name="arch" type="xml">
+            <form string="Compare energy bill">
+                <group>
+                    <field name="result_id" invisible="1"/>
+                    <field name="currency_id" invisible="1"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="first_reading" string="Metered from"/>
+                    <field name="last_reading" string="Metered to"/>
+                    <field name="use_vendor_bill" groups="account.group_account_invoice"/>
+                    <field name="bill_line_id" groups="account.group_account_invoice" invisible="not use_vendor_bill"
+                           required="use_vendor_bill" options="{'no_create': True, 'no_open': True}"
+                           domain="[('move_id.move_type', '=', 'in_invoice'), ('move_id.state', '=', 'posted'),
+                                    ('display_type', '=', 'product'), ('currency_id', '=', currency_id),
+                                    ('company_id', '=', company_id)]"/>
+                    <field name="vendor_id" groups="account.group_account_invoice"
+                           invisible="not use_vendor_bill or not bill_line_id" options="{'no_open': True}"/>
+                    <field name="invoice_date" groups="account.group_account_invoice"
+                           invisible="not use_vendor_bill or not bill_line_id"/>
+                    <field name="vendor_line_subtotal" groups="account.group_account_invoice"
+                           invisible="not use_vendor_bill or not bill_line_id"/>
+                    <field name="bill_reference" groups="!account.group_account_invoice" required="1"/>
+                    <field name="bill_reference" groups="account.group_account_invoice" invisible="use_vendor_bill"
+                           required="not use_vendor_bill"/>
+                    <field name="bill_start"/>
+                    <field name="bill_end"/>
+                    <field name="billed_charge" string="Billed energy charge" groups="!account.group_account_invoice"/>
+                    <field name="billed_charge" string="Billed energy charge" groups="account.group_account_invoice"
+                           invisible="use_vendor_bill"/>
+                </group>
+                <p class="text-muted">Use the charge for the same meter and period. Leave out demand charges, fixed fees, and tax.</p>
+                <footer>
+                    <button name="action_compare" type="object" string="Save comparison" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
     <record id="view_grid_energy_result_form" model="ir.ui.view">
         <field name="name">grid.energy.result.form</field>
         <field name="model">grid.energy.result</field>
@@ -55,10 +150,12 @@
                 <sheet>
                     <field name="has_baseline" invisible="1"/>
                     <field name="has_bill" invisible="1"/>
+                    <field name="can_compare_bill" invisible="1"/>
                     <group>
                         <group string="Meter and tariff">
                             <field name="workorder_id"/>
                             <field name="meter_reference"/>
+                            <field name="gateway_batch_reference" invisible="not gateway_batch_reference"/>
                             <field name="tariff_id"/>
                             <field name="first_reading"/>
                             <field name="last_reading"/>
@@ -77,10 +174,17 @@
                         <field name="bill_reference"/>
                         <field name="billed_charge"/>
                         <field name="bill_difference"/>
+                        <field name="bill_line_id" options="{'no_open': True}"/>
+                        <field name="bill_checked_by"/>
+                        <field name="bill_checked_at"/>
                     </group>
                     <p class="text-muted">The comparison prices the same metered workload at the original times. When a reading spans two prices, its kWh are split by time.</p>
                 </sheet>
-                <footer><button string="Close" special="cancel" class="btn-secondary"/></footer>
+                <footer>
+                    <button name="action_open_bill_check" type="object" string="Compare energy bill" class="btn-primary"
+                            groups="mrp_grid_scheduler.group_grid_manager" invisible="not can_compare_bill"/>
+                    <button string="Close" special="cancel" class="btn-secondary"/>
+                </footer>
             </form>
         </field>
     </record>

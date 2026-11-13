@@ -117,6 +117,38 @@ class TestGridTariff(TransactionCase):
         self.assertEqual(source.slot_ids.sorted('start_utc').mapped('price_per_mwh'), saved)
         self.assertEqual(source.sync_ids.sorted('id', reverse=True)[0].state, 'failed')
 
+    def test_native_market_sync_keeps_each_markets_prices_separate(self):
+        model = self.env['grid.tariff.source'].with_user(self.manager)
+        france = model.create({
+            'name': 'France day-ahead', 'source_type': 'energy_charts', 'energy_charts_market': 'FR',
+        })
+        self.assertEqual(france.timezone, 'Europe/Paris')
+        self.assertEqual(france.currency_id.name, 'EUR')
+        with self.assertRaises(UserError):
+            france.write({'energy_charts_market': 'NL'})
+
+        def market_response(_url, *, params, **_kwargs):
+            market = params['bzn']
+            response = MagicMock(status_code=200)
+            response.__enter__.return_value = response
+            response.iter_content.return_value = [json.dumps({
+                'endpoint': 'price', 'bidding_zone': market, 'unit': 'EUR / MWh',
+                'interval_minutes': 15, 'deprecated': False, 'license': 'CC BY 4.0',
+                'generated_at': '2026-11-12T12:00:00+01:00',
+                'data': [{
+                    'timestamp': '2026-11-12T12:00:00+01:00',
+                    'values': {'day_ahead_price': {'FR': 22, 'DE-LU': 10}[market]},
+                }],
+            }).encode()]
+            return response
+
+        with patch('odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get',
+                   side_effect=market_response) as get:
+            self.assertTrue(model.refresh_energy_charts())
+            self.assertEqual(get.call_count, 2)
+        self.assertEqual(france.slot_ids.price_per_mwh, 22)
+        self.assertEqual(self.source.slot_ids.price_per_mwh, 10)
+
     def test_auto_sync_respects_company_and_keeps_manual_sync_available(self):
         self.assertTrue(self.company.grid_auto_sync)
         self.assertTrue(self.other_company.grid_auto_sync)

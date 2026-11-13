@@ -5,3 +5,4 @@ from . import test_grid_local_tariff
 from . import test_grid_workcenter
 from . import test_scheduler_engine
 from . import test_grid_schedule
+from . import test_meter_gateway_http

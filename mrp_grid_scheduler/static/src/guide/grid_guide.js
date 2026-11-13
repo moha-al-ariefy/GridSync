@@ -1,3 +1,6 @@
+import { browser } from "@web/core/browser/browser";
+import { user } from "@web/core/user";
+import { session } from "@web/session";
 import { Component, onMounted, onWillStart, useState } from "@odoo/owl";
 import { deserializeDateTime, formatDateTime, serializeDateTime } from "@web/core/l10n/dates";
 import { registry } from "@web/core/registry";
@@ -7,7 +10,7 @@ import { standardActionServiceProps } from "@web/webclient/actions/action_servic
 
 const { DateTime } = luxon;
 const SOURCE_FIELDS = [
-    "name", "company_id", "currency_id", "source_type", "last_sync_at", "profile_dirty", "csv_price_basis",
+    "name", "company_id", "currency_id", "source_type", "last_sync_at", "energy_charts_market", "profile_dirty", "csv_price_basis",
 ];
 const SLOT_FIELDS = ["start_utc", "price_per_mwh", "minutes"];
 
@@ -18,7 +21,9 @@ export class GridGuide extends Component {
     setup() {
         this.action = useService("action");
         this.orm = useService("orm");
+        this.tutorialKey = ["gridsync.tutorial.v1", session.db, user.userId].join(".");
         this.state = useState({
+            tutorialOpen: !browser.localStorage.getItem(this.tutorialKey),
             sources: [],
             sourceId: null,
             slots: [],
@@ -152,6 +157,27 @@ export class GridGuide extends Component {
 
     price(value) {
         return formatFloat(value, { digits: [16, 6], minDigits: 2 });
+    }
+
+    showTutorial() {
+        this.state.tutorialOpen = true;
+    }
+
+    closeTutorial() {
+        this.state.tutorialOpen = false;
+        try {
+            browser.localStorage.setItem(this.tutorialKey, "seen");
+        } catch {
+            // Closing the tutorial still works when browser storage is full.
+        }
+    }
+
+    openWorkCenters() {
+        return this.action.doAction("mrp_grid_scheduler.action_grid_workcenters");
+    }
+
+    openSchedule() {
+        return this.action.doAction("mrp_grid_scheduler.action_grid_schedule_run");
     }
 
     openTariffs() {

@@ -81,6 +81,13 @@ GridSync runs on Odoo 19. The core flow runs from tariff inputs to review, apply
 - Consider exact optimization, an optional ESG integration and advanced scheduling after the core is reliable and the required data is available.
 - Repeat the rollout checks at other sites and verify operating and support costs before expanding.
 
+
+**Phase 6 local check.** Odoo accepts meter batches through the gateway API and managers can select them on completed operations. Energy results can be compared with a later bill, including a posted Odoo vendor bill line. Energy-Charts supports five bidding zones, mixed-currency proposals record their exchange rates, and small proposals can search combinations of start times. Overview includes a first-run tutorial. The isolated Odoo 19 suite passed 67 tests. The gateway test sends real HTTP requests for upload, retry, and rejected access. A mixed-currency proposal test checks the rounded total, rejects a changed exchange rate before Apply, then applies and reverts with the reviewed rate. The browser walkthrough confirmed the updated tutorial, Meter batches list, vendor bill picker, and search result label.
+
+**Still open.** Verify the gateway with a real meter and the target Odoo host. Confirm data access, willingness to pay, and operating and support costs with manufacturers. Repeat the pilot on another site. For ESG, Odoo 19 documents both manual emission entries and emissions from accounting records. The workshop install has no ESG add-on to test. The Energy-Charts German CO2 endpoint returns 15-minute observations and forecasts, but the payload does not identify the unit or calculation basis. Confirm the source methodology and site coverage before calculating emissions. Before connecting to Odoo ESG, check how a metered result would be recorded without double-counting electricity already captured from bills.
+
+[Odoo ESG documentation](https://www.odoo.com/documentation/19.0/applications/finance/esg.html) | [Energy-Charts API](https://www.energy-charts.info/api.html?c=DE&l=en)
+
 ## Build order
 
 The original plan suggests about three days, but that is an optimistic estimate. Start with **0 and 1**, then finish the price-to-proposal flow in **2 and 3**. Add safe apply and revert in **4**, then prepare for the first site launch in **5**.

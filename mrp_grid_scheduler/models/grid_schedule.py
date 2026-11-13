@@ -1,3 +1,4 @@
+import math
 from datetime import timedelta
 
 import pytz
@@ -6,7 +7,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 
 from ..services.scheduler import (
-    MAX_HORIZON, MAX_JOBS, METHOD, STEP, JobInput, ScheduleInputError, WorkcenterInput,
+    BOUNDED_METHOD, EXACT_METHOD, MAX_HORIZON, MAX_JOBS, METHOD, STEP, JobInput, ScheduleInputError, WorkcenterInput,
     ceil_slot, dump_inputs, floor_slot, schedule,
 )
 
@@ -29,6 +30,8 @@ def _utc(value):
 
 def _reason_text(env, status, code):
     texts = {
+        ('moved', 'optimized'): env._('Moved as part of the lowest-cost complete schedule found.'),
+        ('unchanged', 'optimized'): env._('Kept in place in the lowest-cost complete schedule found.'),
         ('moved', 'cheaper'): env._('Moved to a lower-cost time.'),
         ('moved', 'unplanned'): env._('Not planned yet. Placed at the lowest-cost time found.'),
         ('moved', 'current_outside'): env._('Its current time is outside working hours, the period, its deadline or its dependency order.'),
@@ -74,6 +77,7 @@ class GridScheduleRun(models.Model):
     )
     computed_at = fields.Datetime(readonly=True, copy=False)
     method = fields.Char(readonly=True, copy=False)
+    method_label = fields.Char(string="Search result", compute="_compute_method_label")
     currency_id = fields.Many2one('res.currency', readonly=True, copy=False)
     proposed_cost = fields.Monetary('Proposed cost', readonly=True, copy=False)
     current_cost = fields.Monetary('Cost at current times', readonly=True, copy=False)
@@ -95,6 +99,16 @@ class GridScheduleRun(models.Model):
     reverted_at = fields.Datetime(readonly=True, copy=False)
     reverted_by = fields.Many2one('res.users', readonly=True, copy=False)
     line_ids = fields.One2many('grid.schedule.line', 'run_id', string='Proposed operations', readonly=True, copy=False)
+
+    @api.depends('method')
+    def _compute_method_label(self):
+        labels = {
+            METHOD: _('Greedy scheduling'),
+            EXACT_METHOD: _('Best schedule across the available start times'),
+            BOUNDED_METHOD: _('Best schedule found before the search limit'),
+        }
+        for run in self:
+            run.method_label = labels.get(run.method, run.method)
 
     @api.depends('proposed_cost', 'current_cost', 'lower_bound', 'has_current_cost', 'has_lower_bound')
     def _compute_comparison(self):
@@ -179,9 +193,28 @@ class GridScheduleRun(models.Model):
                 raise UserError(_('Add working hours to %s before scheduling it.', center.name))
             if calendar.flexible_hours:
                 raise UserError(_('%s uses flexible hours. Choose fixed working hours before scheduling it.', center.name))
-        if require_tariff and len(centers.grid_tariff_source_id.currency_id) > 1:
-            raise UserError(_('Choose work centers whose tariffs use the same currency.'))
         return centers
+
+    def _tariff_exchange_rates(self, tariffs, date):
+        currencies = tariffs.currency_id
+        if len(currencies) <= 1:
+            return {}
+        company = self.company_id
+        rates = self.env['res.currency.rate'].sudo()
+        exchange = {}
+        for currency in currencies - company.currency_id:
+            domain = [('currency_id', '=', currency.id), ('name', '<=', date)]
+            rate = rates.search(domain + [('company_id', '=', company.root_id.id)], order='name desc', limit=1)
+            if not rate:
+                rate = rates.search(domain + [('company_id', '=', False)], order='name desc', limit=1)
+            if not rate or not math.isfinite(rate.rate) or rate.rate <= 0:
+                raise UserError(_('Add an Odoo exchange rate for %(currency)s on or before %(date)s.',
+                                  currency=currency.name, date=date))
+            factor = currency._get_conversion_rate(currency, company.currency_id, company, date)
+            if not math.isfinite(factor) or factor <= 0:
+                raise UserError(_('The exchange rate for %s is outside the supported range.', currency.name))
+            exchange[currency.id] = {'factor': factor, 'date': rate.name.isoformat()}
+        return exchange
 
     def _workcenter_inputs(self, centers, workorders, start, end, include_prices=True):
         tariffs = centers.grid_tariff_source_id if include_prices else self.env['grid.tariff.source']
@@ -189,9 +222,11 @@ class GridScheduleRun(models.Model):
             ('source_id', 'in', tariffs.ids), ('is_current', '=', True),
             ('start_utc', '>=', start), ('start_utc', '<', end),
         ])
+        exchange = self._tariff_exchange_rates(tariffs, start.date())
         prices = {tariff.id: {} for tariff in tariffs}
         for slot in slots:
-            prices[slot.source_id.id][slot.start_utc] = slot.price_per_mwh
+            rate = exchange.get(slot.source_id.currency_id.id)
+            prices[slot.source_id.id][slot.start_utc] = slot.price_per_mwh * rate['factor'] if rate else slot.price_per_mwh
         # Only booking times on the selected company's resources are needed.
         leave_company = ('company_id', 'in', [False, self.company_id.id])
         leaves = self.env['resource.calendar.leaves'].sudo().search_fetch([
@@ -233,6 +268,11 @@ class GridScheduleRun(models.Model):
                 line += ' ' + _('Rules changed after the last generation; affected prices are not used.')
             if tariff.source_reference:
                 line += ' ' + _('Source: %s', tariff.source_reference)
+            rate = exchange.get(tariff.currency_id.id)
+            if rate:
+                line += ' ' + _('Exchange rate: 1 %(source)s = %(factor)s %(target)s, dated %(date)s.',
+                                 source=tariff.currency_id.name, factor=format(rate['factor'], '.12g'),
+                                 target=self.company_id.currency_id.name, date=rate['date'])
             notes.append(line)
             sources.append({
                 'id': tariff.id, 'name': tariff.name, 'type': tariff.source_type, 'currency': tariff.currency_id.name,
@@ -240,6 +280,7 @@ class GridScheduleRun(models.Model):
                 'last_sync_at': tariff.last_sync_at and tariff.last_sync_at.isoformat(),
                 'generated_at': tariff.generated_at and tariff.generated_at.isoformat(),
                 'intervals': found, 'expected_intervals': expected,
+                **({'exchange_rate': rate, 'converted_to': self.company_id.currency_id.name} if rate else {}),
             })
         for center in centers:
             notes.append(_('%(name)s: %(power)s kW (%(reference)s), working hours %(calendar)s.',
@@ -300,8 +341,9 @@ class GridScheduleRun(models.Model):
         if not workorders:
             notes.insert(0, _('No open operations were found on these work centers in this period.'))
         self.sudo().write({
-            'state': 'proposed', 'computed_at': now, 'method': METHOD,
-            'currency_id': self.workcenter_ids.grid_tariff_source_id.currency_id.id,
+            'state': 'proposed', 'computed_at': now, 'method': result.method,
+            'currency_id': (self.company_id.currency_id if any(source.get('exchange_rate') for source in sources)
+                            else self.workcenter_ids.grid_tariff_source_id.currency_id).id,
             'proposed_cost': result.proposed_cost, 'current_cost': result.current_cost or 0,
             'has_current_cost': result.current_cost is not None,
             'lower_bound': result.lower_bound or 0, 'has_lower_bound': result.lower_bound is not None,

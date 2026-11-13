@@ -142,10 +142,12 @@ class GridScheduleRun(models.Model):
         proposed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in lines}
         self._check_future_dates(moved, proposed)
         inputs, jobs, sources = self._validate_schedule_dates(workorders, proposed, start, end, True)
-        source_keys = [(source['id'], source['currency']) for source in sources]
-        frozen_keys = [(source['id'], source['currency']) for source in self.snapshot['sources']]
+        source_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'))
+                       for source in sources]
+        frozen_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'))
+                       for source in self.snapshot['sources']]
         if dump_inputs(start, end, inputs, jobs) != self.snapshot['inputs'] or source_keys != frozen_keys:
-            raise UserError(_('Prices, working hours or bookings changed. Compute a new proposal.'))
+            raise UserError(_('Prices, exchange rates, working hours or bookings changed. Compute a new proposal.'))
         self._validate_restore_dates(workorders, before)
         self._write_schedule_dates(moved, proposed)
         self.sudo().write({

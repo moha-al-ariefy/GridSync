@@ -2,6 +2,15 @@ import math
 from datetime import datetime, timedelta, timezone
 
 
+ENERGY_CHARTS_MARKETS = {
+    'DE-LU': ('Germany and Luxembourg', 'Europe/Berlin'),
+    'AT': ('Austria', 'Europe/Vienna'),
+    'BE': ('Belgium', 'Europe/Brussels'),
+    'FR': ('France', 'Europe/Paris'),
+    'NL': ('Netherlands', 'Europe/Amsterdam'),
+}
+
+
 class PriceDataError(ValueError):
     pass
 
@@ -21,11 +30,11 @@ def _utc_datetime(value):
         raise PriceDataError('A timestamp is outside the supported UTC range.') from exc
 
 
-def parse_prices(payload):
+def parse_prices(payload, market="DE-LU"):
     if not isinstance(payload, dict):
         raise PriceDataError('The response is not an object.')
-    if payload.get('endpoint') != 'price' or payload.get('bidding_zone') != 'DE-LU':
-        raise PriceDataError('The response is not for the DE-LU price market.')
+    if payload.get('endpoint') != 'price' or payload.get('bidding_zone') != market:
+        raise PriceDataError('The response is not for the selected price market.')
     unit = payload.get('unit')
     if not isinstance(unit, str) or unit.replace(' ', '') != 'EUR/MWh':
         raise PriceDataError('The response has an unexpected currency or unit.')

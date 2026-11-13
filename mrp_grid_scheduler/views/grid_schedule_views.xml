@@ -79,7 +79,7 @@
                             <field name="unchanged_count"/>
                             <field name="unscheduled_count" decoration-warning="unscheduled_count"/>
                             <field name="computed_at"/>
-                            <field name="method"/>
+                            <field name="method_label" invisible="state == 'draft'"/>
                         </group>
                     </group>
                     <group string="Schedule history" invisible="state not in ('applied', 'reverted')">
@@ -125,12 +125,13 @@
                             </field>
                         </page>
                         <page string="Data and assumptions" name="data">
+                            <group><field name="method_label" invisible="state == 'draft'"/></group>
                             <field name="data_notes" class="o_gridsync_notes"/>
                             <ul class="text-muted mt-3">
                                 <li>Costs are estimates: operating power × working time × the tariff price for each 15-minute interval. They are not metered energy or a supply bill.</li>
                                 <li>Energy is counted only during working hours. A work center stays booked from an operation's start to its end, including breaks.</li>
                                 <li>Missing prices are never filled. Times without prices are not used.</li>
-                                <li>The scheduler is a deterministic heuristic, not an exact optimizer. Operations start on 15-minute marks, at the start of working hours or at their current time.</li>
+                                <li>Small runs search combinations of start times and stop after a fixed search limit. Search result shows whether all available start-time combinations were checked. Operations start on 15-minute marks, at the start of working hours or at their current time.</li>
                                 <li>The current schedule is used for cost comparison when its bookings are feasible and have prices. The lower bound is shown only when every operation is scheduled. It assumes each operation could take its cheapest time on its own, ignoring the others, within the same start times. No schedule using those start times can cost less.</li>
                                 <li>Carbon intensity is not used. The proposal is based on price only.</li>
                             </ul>

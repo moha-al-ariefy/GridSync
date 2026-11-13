@@ -38,10 +38,50 @@ class GridEnergyResult(models.Model):
     billed_charge = fields.Monetary('Billed energy charge', readonly=True)
     bill_difference = fields.Monetary('Billed minus calculated', readonly=True)
     bill_reference = fields.Char(readonly=True)
+    bill_line_id = fields.Many2one(
+        'account.move.line', readonly=True, ondelete='set null', check_company=True,
+        groups='account.group_account_invoice',
+    )
+    bill_checked_by = fields.Many2one('res.users', readonly=True)
+    bill_checked_at = fields.Datetime(readonly=True)
+    can_compare_bill = fields.Boolean(compute="_compute_can_compare_bill")
     imported_by = fields.Many2one('res.users', readonly=True)
     evidence = fields.Json(readonly=True)
+    gateway_batch_reference = fields.Char(compute='_compute_gateway_batch_reference', string='Gateway batch')
 
     _one_result_per_operation = models.Constraint('UNIQUE(workorder_id)', 'This operation already has a meter result.')
+
+    @api.depends('evidence')
+    def _compute_gateway_batch_reference(self):
+        for result in self:
+            evidence = result.evidence or {}
+            batch_id = evidence.get('gateway_batch_id')
+            reference = evidence.get('gateway_batch_reference')
+            result.gateway_batch_reference = reference or (_('Batch #%s', batch_id) if batch_id else False)
+
+    @api.depends('has_bill', 'evidence')
+    def _compute_can_compare_bill(self):
+        for result in self:
+            result.can_compare_bill = not result.has_bill and len((result.evidence or {}).get('run_times', [])) == 1
+
+    def action_open_bill_check(self):
+        self.ensure_one()
+        self._check_bill_access()
+        return {
+            'type': 'ir.actions.act_window', 'name': _('Compare energy bill'),
+            'res_model': 'grid.energy.bill.check', 'view_mode': 'form', 'target': 'new',
+            'context': {'default_result_id': self.id},
+        }
+
+    def _check_bill_access(self):
+        self.ensure_one()
+        self.check_access('read')
+        if not self.env.user.has_group(GRID_MANAGER):
+            raise AccessError(_('Only a GridSync manager can compare a bill.'))
+        if self.has_bill:
+            raise UserError(_('This result already has a saved bill comparison.'))
+        if len((self.evidence or {}).get('run_times', [])) != 1:
+            raise UserError(_('A bill comparison needs one continuous period of meter readings.'))
 
     def _open_result(self):
         self.ensure_one()
@@ -67,7 +107,7 @@ class GridScheduleLine(models.Model):
             ids = [sources[0]['id']] if len(sources) == 1 else []
         return self.env['grid.tariff.source'].with_context(active_test=False).search([
             ('id', 'in', ids), ('company_id', '=', self.company_id.id),
-            ('currency_id', '=', self.currency_id.id), ('source_type', '!=', 'energy_charts'),
+            ('source_type', '!=', 'energy_charts'),
             '|', ('source_type', '!=', 'csv'), ('csv_price_basis', '!=', 'forecast'),
         ])
 
@@ -173,9 +213,15 @@ class GridEnergyImport(models.TransientModel):
     line_id = fields.Many2one('grid.schedule.line', required=True, readonly=True)
     tariff_ids = fields.Many2many('grid.tariff.source', compute='_compute_tariff_ids')
     tariff_id = fields.Many2one('grid.tariff.source', required=True)
-    meter_reference = fields.Char(required=True)
+    meter_reference = fields.Char()
     dedicated_meter = fields.Boolean('Meter covers only this operation during the uploaded intervals')
-    csv_file = fields.Binary(attachment=False, required=True)
+    reading_source = fields.Selection([
+        ('csv', 'Meter CSV'), ('gateway', 'Meter gateway'),
+    ], required=True, default='csv')
+    gateway_batch_id = fields.Many2one('grid.meter.batch')
+    workcenter_id = fields.Many2one(related='line_id.workcenter_id')
+    company_id = fields.Many2one(related='line_id.company_id')
+    csv_file = fields.Binary(attachment=False)
     csv_filename = fields.Char()
     compare_bill = fields.Boolean('Compare with a billed energy charge')
     currency_id = fields.Many2one(related='tariff_id.currency_id')
@@ -198,16 +244,19 @@ class GridEnergyImport(models.TransientModel):
         tariff.check_access('read')
         if tariff not in line._meter_tariffs():
             raise UserError(_('Choose a site tariff from this proposal with rates for the energy charge.'))
-        if not self.dedicated_meter or not (self.meter_reference or '').strip():
+        meter_reference = self.meter_reference
+        batch = self.env['grid.meter.batch']
+        if self.reading_source == 'gateway':
+            batch = self.gateway_batch_id
+            batch.check_access('read')
+            if not batch or batch.company_id != line.company_id or batch.workcenter_id != line.workcenter_id:
+                raise UserError(_('Select a meter batch for this work center and company.'))
+            readings = self._parse_meter_file(batch.readings_csv)
+            meter_reference = batch.meter_reference
+        else:
+            readings = self._parse_meter_file(self.csv_file)
+        if not self.dedicated_meter or not (meter_reference or '').strip():
             raise UserError(_('Enter a meter reference and confirm the readings cover only this operation.'))
-        if not self.csv_file or len(self.csv_file) > ((MAX_CSV_BYTES + 2) // 3) * 4:
-            raise UserError(_('Upload a meter CSV up to 2 MB.'))
-        try:
-            readings = parse_meter_csv(base64.b64decode(self.csv_file, validate=True))
-        except binascii.Error as exc:
-            raise UserError(_('Upload a valid meter CSV.')) from exc
-        except MeterInputError as exc:
-            raise UserError(str(exc)) from exc
         times = line._meter_work_times(readings)
         start, end = times[0][0], times[-1][1]
         bill_reference = (self.bill_reference or '').strip() if self.compare_bill else ''
@@ -218,15 +267,17 @@ class GridEnergyImport(models.TransientModel):
             raise UserError(_('Enter a bill reference and a billing period that matches the continuous meter coverage.'))
         currency = tariff.currency_id
         billed = currency.round(self.billed_charge) if self.compare_bill else 0
-        meter_reference = self.meter_reference.strip()
+        meter_reference = meter_reference.strip()
         saved_readings = [[low.isoformat(), high.isoformat(), str(kwh.normalize() or 0)] for low, high, kwh in readings]
         results = self.env['grid.energy.result']
         existing = results.search([('workorder_id', '=', line.workorder_id.id)], limit=1)
         if existing:
-            if (existing.line_id, existing.tariff_id, existing.evidence['readings'], existing.meter_reference,
-                existing.has_bill, existing.billed_charge, existing.bill_reference or '') == (
-                line, tariff, saved_readings, meter_reference, self.compare_bill, billed, bill_reference,
-            ):
+            same_readings = (existing.line_id, existing.tariff_id, existing.evidence['readings'],
+                             existing.meter_reference) == (line, tariff, saved_readings, meter_reference)
+            same_bill = not self.compare_bill or (
+                existing.has_bill and existing.billed_charge == billed and existing.bill_reference == bill_reference
+            )
+            if same_readings and same_bill:
                 return existing._open_result()
             raise UserError(_('This operation already has a saved meter result.'))
 
@@ -244,6 +295,8 @@ class GridEnergyImport(models.TransientModel):
             'actual_prices': {slot.isoformat(): str(prices[slot]) for slot in sorted(used)},
             'baseline_prices': {slot.isoformat(): str(price) for slot, price in sorted(baseline_prices.items())},
             'tariff_reference': tariff.source_reference,
+            'gateway_batch_id': batch.id,
+            'gateway_batch_reference': batch.name,
         }
         values = {
             'line_id': line.id, 'workorder_id': line.workorder_id.id, 'tariff_id': tariff.id, 'currency_id': currency.id,
@@ -252,6 +305,8 @@ class GridEnergyImport(models.TransientModel):
             'baseline_charge': original, 'has_baseline': baseline is not None, 'baseline_note': note,
             'estimated_savings': currency.round(original - actual) if baseline is not None else 0,
             'has_bill': self.compare_bill, 'billed_charge': billed,
+            'bill_checked_by': self.env.uid if self.compare_bill else False,
+            'bill_checked_at': fields.Datetime.now() if self.compare_bill else False,
             'bill_reference': bill_reference or False,
             'bill_difference': currency.round(billed - actual) if self.compare_bill else 0,
             'imported_by': self.env.uid, 'evidence': evidence,
@@ -264,3 +319,78 @@ class GridEnergyImport(models.TransientModel):
             # Odoo retries with a fresh snapshot if another import got there first.
             raise ConcurrencyError('Another import saved the meter result.') from exc
         return result.with_env(self.env)._open_result()
+
+
+    @api.model
+    def _parse_meter_file(self, content):
+        if not content or len(content) > ((MAX_CSV_BYTES + 2) // 3) * 4:
+            raise UserError(_('Provide meter readings up to 2 MB.'))
+        try:
+            return parse_meter_csv(base64.b64decode(content, validate=True))
+        except binascii.Error as exc:
+            raise UserError(_('Provide a valid meter CSV.')) from exc
+        except MeterInputError as exc:
+            raise UserError(str(exc)) from exc
+
+
+class GridEnergyBillCheck(models.TransientModel):
+    _name = 'grid.energy.bill.check'
+    _description = 'Compare GridSync Energy Bill'
+
+    result_id = fields.Many2one('grid.energy.result', required=True, readonly=True, ondelete='cascade')
+    company_id = fields.Many2one(related='result_id.company_id', compute_sudo=False)
+    currency_id = fields.Many2one(related='result_id.currency_id', compute_sudo=False)
+    first_reading = fields.Datetime(related='result_id.first_reading', compute_sudo=False)
+    last_reading = fields.Datetime(related='result_id.last_reading', compute_sudo=False)
+    bill_line_id = fields.Many2one('account.move.line', groups='account.group_account_invoice')
+    vendor_id = fields.Many2one(
+        related='bill_line_id.partner_id', compute_sudo=False, groups='account.group_account_invoice',
+    )
+    invoice_date = fields.Date(
+        related='bill_line_id.move_id.invoice_date', compute_sudo=False, groups='account.group_account_invoice',
+    )
+    vendor_line_subtotal = fields.Monetary(
+        'Untaxed line subtotal', related='bill_line_id.price_subtotal',
+        compute_sudo=False, groups='account.group_account_invoice',
+    )
+    bill_reference = fields.Char()
+    use_vendor_bill = fields.Boolean('Use a posted vendor bill line', groups='account.group_account_invoice')
+    bill_start = fields.Datetime(required=True)
+    bill_end = fields.Datetime(required=True)
+    billed_charge = fields.Monetary()
+
+    def action_compare(self):
+        self.ensure_one()
+        self.check_access('read')
+        result = self.result_id
+        result._check_bill_access()
+        reference = (self.bill_reference or '').strip()
+        amount = self.billed_charge
+        bill_line = self.env['account.move.line']
+        if self.env.user.has_group('account.group_account_invoice') and self.use_vendor_bill:
+            bill_line = self.bill_line_id
+            bill_line.check_access('read')
+            if (not bill_line or bill_line.move_id.move_type != 'in_invoice'
+                    or bill_line.move_id.state != 'posted' or bill_line.display_type != 'product'
+                    or bill_line.company_id != result.company_id or bill_line.currency_id != result.currency_id):
+                raise UserError(_('Choose a posted vendor bill charge in the same company and currency.'))
+            reference = bill_line.move_id.name
+            amount = bill_line.price_subtotal
+        if (not reference or not math.isfinite(amount)
+                or (self.bill_start, self.bill_end) != (result.first_reading, result.last_reading)):
+            raise UserError(_('Enter a bill reference and an energy charge for the exact metered period.'))
+
+        self.env.cr.execute(
+            'SELECT id FROM grid_energy_result WHERE id = %s FOR NO KEY UPDATE', [result.id],
+        )
+        result.invalidate_recordset(['has_bill'])
+        result._check_bill_access()
+        currency = result.currency_id
+        billed = currency.round(amount)
+        result.sudo().write({
+            'bill_line_id': bill_line.id,
+            'has_bill': True, 'billed_charge': billed, 'bill_reference': reference,
+            'bill_difference': currency.round(billed - result.energy_charge),
+            'bill_checked_by': self.env.uid, 'bill_checked_at': fields.Datetime.now(),
+        })
+        return result._open_result()

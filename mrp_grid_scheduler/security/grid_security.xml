@@ -55,4 +55,13 @@
         <field name="model_id" ref="model_grid_energy_result"/>
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
+    <record id="group_grid_meter_gateway" model="res.groups">
+        <field name="name">Meter gateway</field>
+        <field name="privilege_id" ref="privilege_grid_sync"/>
+    </record>
+    <record id="rule_grid_meter_batch_company" model="ir.rule">
+        <field name="name">GridSync meter batches by company</field>
+        <field name="model_id" ref="model_grid_meter_batch"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>

@@ -4,7 +4,7 @@
     'summary': 'Plan manufacturing around energy prices',
     'icon': '/mrp_grid_scheduler/static/description/icon-purple.png',
     'category': 'Manufacturing',
-    'depends': ['mrp'],
+    'depends': ['mrp', 'account'],
     'data': [
         'security/grid_security.xml',
         'security/ir.model.access.csv',

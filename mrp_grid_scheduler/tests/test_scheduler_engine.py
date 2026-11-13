@@ -56,6 +56,21 @@ def minute_cost(data, start, end):
 
 @tagged('post_install', '-at_install')
 class TestSchedulerEngine(BaseCase):
+    def test_candidate_search_improves_the_complete_greedy_schedule(self):
+        end = at(1)
+        rates = {at(0): 0, at(0, 15): 0, at(0, 30): 100, at(0, 45): 1}
+        workcenter = center(working=((DAY, end),), price_map=rates)
+        jobs = [job(1, minutes=15), job(2, minutes=30)]
+        result = schedule(DAY, end, [workcenter], jobs)
+        self.assertEqual(result.method, scheduler.EXACT_METHOD)
+        self.assertEqual(result.jobs[1].proposed.start, at(0, 45))
+        self.assertEqual(result.jobs[2].proposed.start, DAY)
+        self.assertAlmostEqual(result.proposed_cost, 0.0025)
+        with patch.object(scheduler, 'MAX_SEARCH_NODES', 0):
+            bounded = schedule(DAY, end, [workcenter], jobs)
+        self.assertTrue(bounded.complete)
+        self.assertGreater(bounded.proposed_cost, result.proposed_cost)
+
     def test_moves_job_to_lowest_cost_window(self):
         result = schedule(DAY, END, [center(price_map=prices(100, hourly(2, 4, 20)))],
                           [job(1, current_start=at(8))])

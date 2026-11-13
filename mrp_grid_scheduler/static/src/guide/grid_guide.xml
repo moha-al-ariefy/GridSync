@@ -4,8 +4,35 @@
         <main class="o_gridsync_workspace">
             <header class="o_gridsync_workspace_header">
                 <h1>Electricity prices</h1>
-                <button type="button" class="btn btn-secondary" t-on-click="openTariffs">Manage sources</button>
+                <div class="d-flex flex-wrap gap-2">
+                    <button t-if="!state.tutorialOpen" type="button" class="btn btn-secondary" t-on-click="showTutorial">Tutorial</button>
+                    <button type="button" class="btn btn-secondary" t-on-click="openTariffs">Manage sources</button>
+                </div>
             </header>
+            <section t-if="state.tutorialOpen" class="border rounded p-3 mb-3" aria-labelledby="grid-tutorial-title">
+                <h2 id="grid-tutorial-title" class="h5">Getting started with GridSync</h2>
+                <ol>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openTariffs">Check the tariff</button>.
+                        Check that the rate your site pays covers the proposed window. For an Energy-Charts source, verify the bidding zone and confirm that your contract follows those wholesale prices. Ask a GridSync manager to add missing rates.
+                    </li>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openWorkCenters">Check the work center</button>.
+                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle.
+                    </li>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openSchedule">Compute and review a proposal</button>.
+                        Compare dates and estimated costs before selecting Review and apply. For a mixed-currency proposal, check the exchange rates under Data and assumptions. Use Review revert if the original booking can still be restored safely.
+                    </li>
+                    <li>
+                        <strong>Check the energy result.</strong> After production, open the applied proposal. A GridSync manager can upload a meter CSV or select a delivery from Meter gateway. Readings must cover the exact productive times recorded in Odoo.
+                    </li>
+                    <li class="mt-2">
+                        <strong>Compare the energy bill.</strong> Open the saved energy result when the bill arrives. Enter the energy charge or, with Odoo Billing access, select a posted vendor bill line for the same meter and exact period. Check the untaxed subtotal before saving.
+                    </li>
+                </ol>
+                <button type="button" class="btn btn-secondary" t-on-click="closeTutorial">Close tutorial</button>
+            </section>
             <div t-if="!state.sources.length" class="o_gridsync_empty">
                 <t t-if="state.failed">
                     <p>Tariff sources could not be loaded.</p>
@@ -32,7 +59,7 @@
                         <div>
                             <h2 id="grid-price-heading" t-esc="source.name"/>
                             <p t-if="source.source_type === 'energy_charts'" class="o_gridsync_meta">
-                                Published day-ahead wholesale · <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
+                                Published day-ahead wholesale (<t t-esc="source.energy_charts_market"/>) · <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
                                 <t t-else="">Awaiting first sync</t>
                             </p>
                             <p t-elif="source.source_type === 'manual_tou'" class="o_gridsync_meta">

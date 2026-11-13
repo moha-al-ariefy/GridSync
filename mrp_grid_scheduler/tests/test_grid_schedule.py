@@ -313,10 +313,59 @@ class TestGridSchedule(TransactionCase):
         run.action_compute()
         start = run.line_ids.proposed_start
         self.tariff.slot_ids.filtered(lambda slot: slot.start_utc == start).sudo().write({'price_per_mwh': 99})
-        with self.assertRaisesRegex(UserError, 'Prices, working hours or bookings changed'):
+        with self.assertRaisesRegex(UserError, 'Prices, exchange rates, working hours or bookings changed'):
             run._change_schedule('apply')
         self.assertEqual(run.state, 'proposed')
         self.assertEqual((operation.date_start, operation.date_finished), (at(8), at(8, 30)))
+
+    def test_mixed_currency_requires_a_dated_rate(self):
+        foreign = self.env['res.currency'].create({'name': 'XTS', 'symbol': 'XTS'})
+        base_tariff = self.tariff.copy({'name': 'Company tariff', 'currency_id': self.company.currency_id.id})
+        tariff = self.tariff.copy({'name': 'Foreign tariff', 'currency_id': foreign.id})
+        run = self.make_run()
+        rate_date = fields.Date.to_date('1900-01-02')
+        with self.assertRaisesRegex(UserError, 'Add an Odoo exchange rate'):
+            run._tariff_exchange_rates(base_tariff | tariff, rate_date)
+        self.env['res.currency.rate'].create({
+            'name': rate_date, 'currency_id': foreign.id, 'company_id': self.company.root_id.id, 'rate': 2,
+        })
+        rates = run._tariff_exchange_rates(base_tariff | tariff, rate_date)
+        self.assertEqual(rates[foreign.id], {'factor': 0.5, 'date': '1900-01-02'})
+        self.assertEqual(run._tariff_exchange_rates(tariff, rate_date), {})
+
+    def test_mixed_currency_proposal_rechecks_rate_before_apply(self):
+        foreign = self.env['res.currency'].create({'name': 'XTS', 'symbol': 'XTS'})
+        base_tariff = self.tariff.copy({'name': 'Company tariff', 'currency_id': self.company.currency_id.id})
+        foreign_tariff = self.tariff.copy({'name': 'Foreign tariff', 'currency_id': foreign.id})
+        cheap = {at(13): 10}
+        self.add_prices(DAY, 100, cheap, tariff=base_tariff)
+        self.add_prices(DAY, 100, cheap, tariff=foreign_tariff)
+        self.center.sudo().grid_tariff_source_id = base_tariff
+        other = self.center.sudo().copy({
+            'name': 'Foreign tariff press', 'grid_tariff_source_id': foreign_tariff.id,
+            'grid_allow_shift': True, 'grid_power_kw': 20, 'grid_power_reference': 'Test fixture',
+        })
+        _first, (cut,) = self.make_production([('Cut', self.center, 15)])
+        _second, (press,) = self.make_production([('Press', other, 15)])
+        for workorder in cut | press:
+            workorder.write({'date_start': at(8), 'date_finished': at(8, 15)})
+        rate = self.env['res.currency.rate'].create({
+            'name': DAY.date(), 'currency_id': foreign.id, 'company_id': self.company.root_id.id, 'rate': 2,
+        })
+        run = self.make_run(centers=self.center | other)
+        run.action_compute()
+        self.assertEqual(run.currency_id, self.company.currency_id)
+        self.assertEqual(run.proposed_cost, self.company.currency_id.round(0.075))
+        self.assertIn('Exchange rate:', run.data_notes)
+        rate.rate = 4
+        with self.assertRaisesRegex(UserError, 'exchange rates'):
+            run._change_schedule('apply')
+        self.assertEqual((cut.date_start, press.date_start), (at(8), at(8)))
+        rate.rate = 2
+        run._change_schedule('apply')
+        self.assertEqual((cut.date_start, press.date_start), (at(13), at(13)))
+        run._change_schedule('revert')
+        self.assertEqual((cut.date_start, press.date_start), (at(8), at(8)))
 
     def make_meter_import(self):
         _production, (order,) = self.make_production([('Metered press', self.center, 30)])
@@ -339,6 +388,37 @@ class TestGridSchedule(TransactionCase):
                 b'start,end,kwh\n2030-01-07T13:00Z,2030-01-07T13:15Z,6\n2030-01-07T13:15Z,2030-01-07T13:30Z,4\n'),
         })
         return line, wizard
+
+    def test_gateway_batch_can_be_retried_and_used_for_an_energy_result(self):
+        line, wizard = self.make_meter_import()
+        batches = self.env['grid.meter.batch']
+        gateway = new_test_user(
+            self.env, login='grid_meter_test_gateway', groups='mrp_grid_scheduler.group_grid_meter_gateway',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)],
+        )
+        readings = base64.b64decode(wizard.csv_file).decode()
+        submit = batches.with_user(gateway).submit_readings
+        with self.assertRaisesRegex(UserError, 'Provide a work center'):
+            submit(2**31, 'Press meter', 'Batch 1', readings)
+        with self.assertRaises(AccessError):
+            submit(self.center.id, 'Press meter', 'Batch 1', readings)
+        gateway.sudo().grid_meter_workcenter_ids = [Command.set(self.center.ids)]
+        with self.assertRaises(AccessError):
+            batches.with_user(self.manager).submit_readings(self.center.id, 'Press meter', 'Batch 1', readings)
+        batch_id = submit(self.center.id, 'Press meter', 'Batch 1', readings)
+        self.assertEqual(submit(self.center.id, 'Press meter', 'Batch 1', readings), batch_id)
+        with self.assertRaisesRegex(UserError, 'different readings'):
+            submit(self.center.id, 'Press meter', 'Batch 1', readings.replace(',4', ',5'))
+        with self.assertRaises(AccessError):
+            batches.with_user(gateway).browse(batch_id).read(['readings_csv'])
+        wizard.write({'reading_source': 'gateway', 'gateway_batch_id': batch_id,
+                      'csv_file': False, 'meter_reference': False})
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        result = line.energy_result_ids
+        self.assertEqual(result.evidence['gateway_batch_id'], batch_id)
+        self.assertEqual(result.with_user(self.planner).gateway_batch_reference, 'Batch 1')
+        self.assertEqual((result.meter_reference, result.measured_kwh), ('Press meter', 10))
 
     def test_meter_result_prices_actual_and_original_times(self):
         line, wizard = self.make_meter_import()
@@ -364,6 +444,72 @@ class TestGridSchedule(TransactionCase):
             result.with_user(self.planner).write({'measured_kwh': 100})
         with self.assertRaises(AccessError):
             result.with_user(self.outsider).read(['measured_kwh'])
+
+    def test_manager_can_compare_a_bill_after_import(self):
+        line, wizard = self.make_meter_import()
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        result = line.energy_result_ids
+        with self.assertRaises(AccessError):
+            result.with_user(self.planner).action_open_bill_check()
+        check = self.env['grid.energy.bill.check'].with_user(self.manager).create({
+            'result_id': result.id, 'bill_reference': 'Late bill', 'bill_start': at(13, 15),
+            'bill_end': at(13, 30), 'billed_charge': 0.11,
+        })
+        with self.assertRaisesRegex(UserError, 'exact metered period'):
+            check.action_compare()
+        check.bill_start = at(13)
+        self.assertEqual(check.action_compare()['res_id'], result.id)
+        self.assertEqual(result.bill_checked_by, self.manager)
+        self.assertAlmostEqual(result.bill_difference, 0.01)
+        self.assertAlmostEqual(result.energy_charge, 0.10)
+        with self.assertRaisesRegex(UserError, 'already has a saved bill'):
+            check.action_compare()
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            self.assertEqual(wizard.action_import()['res_id'], result.id)
+
+    def test_bill_comparison_uses_posted_untaxed_vendor_line(self):
+        line, wizard = self.make_meter_import()
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        result = line.energy_result_ids
+        result.currency_id.sudo().active = True
+        self.manager.group_ids = [Command.link(self.env.ref('account.group_account_invoice').id)]
+        accounts = self.env['account.account']
+        expense = accounts.create({
+            'name': 'Grid energy expense', 'code': 'GE9901', 'account_type': 'expense',
+            'company_ids': [Command.set(self.company.ids)],
+        })
+        payable = accounts.create({
+            'name': 'Grid energy payable', 'code': 'GE9902', 'account_type': 'liability_payable',
+            'reconcile': True, 'company_ids': [Command.set(self.company.ids)],
+        })
+        vendor = self.env['res.partner'].create({'name': 'Grid utility test', 'property_account_payable_id': payable.id})
+        journal = self.env['account.journal'].create({
+            'name': 'Grid utility bills', 'code': 'GUTIL', 'type': 'purchase', 'company_id': self.company.id,
+        })
+        bill = self.env['account.move'].create({
+            'move_type': 'in_invoice', 'company_id': self.company.id, 'journal_id': journal.id,
+            'partner_id': vendor.id, 'currency_id': result.currency_id.id, 'invoice_date': at(13).date(),
+            'invoice_line_ids': [Command.create({
+                'name': 'Metered energy', 'account_id': expense.id, 'quantity': 2, 'price_unit': 0.06,
+            })],
+        })
+        check = self.env['grid.energy.bill.check'].with_user(self.manager).create({
+            'result_id': result.id, 'use_vendor_bill': True, 'bill_line_id': bill.invoice_line_ids.id,
+            'bill_start': at(13), 'bill_end': at(13, 30),
+        })
+        with self.assertRaisesRegex(UserError, 'Choose a posted vendor bill'):
+            check.action_compare()
+        bill.action_post()
+        self.assertEqual(check.vendor_id, vendor)
+        self.assertEqual(check.invoice_date, bill.invoice_date)
+        self.assertAlmostEqual(check.vendor_line_subtotal, 0.12)
+        check.action_compare()
+        self.assertEqual(result.with_user(self.manager).bill_line_id, bill.invoice_line_ids)
+        self.assertAlmostEqual(result.billed_charge, 0.12)
+        self.assertAlmostEqual(result.bill_difference, 0.02)
+        self.assertEqual(bill.state, 'posted')
 
     def test_meter_import_rejects_incomplete_and_shared_usage(self):
         line, wizard = self.make_meter_import()

@@ -5,7 +5,7 @@ consumes working minutes on its work center calendar and blocks the work center
 from its start to its end, including any non-working time in between, which
 matches how Odoo books work orders. Energy is only counted during working time.
 
-This is a greedy heuristic, not an exact optimizer. Jobs start on 15-minute
+Small runs also search combinations of candidate starts. Jobs start on 15-minute
 marks, at the start of a working interval or at their current start.
 """
 import bisect
@@ -25,6 +25,9 @@ MAX_JOBS = 500
 MIN_DURATION = timedelta(seconds=1)
 COST_DIGITS = 6
 METHOD = 'greedy-15min-v1'
+EXACT_METHOD = 'candidate-search-15min-v1'
+BOUNDED_METHOD = 'bounded-candidate-search-15min-v1'
+MAX_SEARCH_NODES = 10_000
 
 
 class ScheduleInputError(ValueError):
@@ -78,6 +81,7 @@ class ScheduleResult:
     current_cost: float
     lower_bound: float
     complete: bool
+    method: str = METHOD
 
 
 def floor_slot(value):
@@ -313,6 +317,51 @@ def _protect_retained_bookings(jobs, successors, kept_booking, placed, unschedul
             retain(successor, 'predecessor')
 
 
+def _search_placements(order, jobs, centers, durations, finish_by, incumbent):
+    placed = {}
+    busy = {key: list(center.busy) for key, center in centers.items()}
+    best = incumbent
+    best_cost = math.fsum(item.cost for item in best.values()) if best else math.inf
+    remaining = MAX_SEARCH_NODES
+
+    def visit(index):
+        nonlocal best, best_cost, remaining
+        if index == len(order):
+            cost = math.fsum(item.cost for item in placed.values())
+            if cost < best_cost:
+                best, best_cost = placed.copy(), cost
+            return True
+        key = order[index]
+        job = jobs[key]
+        center = centers[job.workcenter]
+        bookings = busy[job.workcenter]
+        low = max([job.release] + [placed[pred].end for pred in job.predecessors])
+        for start in center.candidates(low, finish_by[key], job.current_start):
+            if not remaining:
+                return False
+            remaining -= 1
+            walked = center.walk(start, durations[key])
+            if not walked or walked[0] > finish_by[key]:
+                break
+            end, segments = walked
+            if _overlaps(bookings, start, end):
+                continue
+            price = center.price(segments)
+            if price is None:
+                continue
+            placed[key] = Placement(start, end, *price)
+            bookings.append((start, end))
+            finished = visit(index + 1)
+            bookings.pop()
+            del placed[key]
+            if not finished:
+                return False
+        return True
+
+    exhaustive = visit(0)
+    return best, exhaustive
+
+
 def schedule(horizon_start, horizon_end, workcenters, jobs):
     """Propose lower-cost start times for `jobs`. Inputs are not modified."""
     if horizon_start >= horizon_end or horizon_end - horizon_start > MAX_HORIZON:
@@ -363,6 +412,10 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
                 bounds[key] = best.cost
             else:
                 unscheduled[key] = reason
+    can_search = (
+        not cyclic and not any(job.blocked_reason for job in jobs.values())
+        and 1 < len(jobs) <= 6 and horizon_end - horizon_start <= timedelta(days=1)
+    )
     current = {key: _current_placement(centers[job.workcenter], job, durations[key]) for key, job in jobs.items()}
 
     def kept_booking(key):
@@ -419,6 +472,25 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
         proposed_cost = current_cost
         results = {key: ('unchanged', 'baseline') for key in baseline}
 
+    method = METHOD
+    if can_search:
+        improved, exhaustive = _search_placements(
+            order, jobs, centers, durations,
+            {key: min(horizon_end, job.due or horizon_end) for key, job in jobs.items()},
+            placed if not unscheduled else {},
+        )
+        if improved and improved != placed:
+            bounds = {}
+            placed = improved
+            unscheduled = {}
+            proposed_cost = math.fsum(item.cost for item in placed.values())
+            results = {}
+            for key, placement in placed.items():
+                unchanged = current[key][0] == placement
+                results[key] = ('unchanged', 'optimized') if unchanged else ('moved', 'optimized')
+        if improved:
+            method = EXACT_METHOD if exhaustive else BOUNDED_METHOD
+
     job_results = {}
     for key, job in jobs.items():
         current_booking, current_issue = current[key]
@@ -429,7 +501,7 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             job_results[key] = JobResult(key, status, why, placed[key], current_booking, current_issue)
 
     complete = not unscheduled
-    lower_bound = math.fsum(bounds[key] for key in jobs) if complete and jobs else None
+    lower_bound = math.fsum(bounds.values()) if complete and jobs and len(bounds) == len(jobs) else None
     if lower_bound is not None and lower_bound > proposed_cost + 10 ** -COST_DIGITS * max(1, len(jobs)):
         times = {key: (item.start, item.end) for key, item in placed.items()}
         verified = check_placements(horizon_start, horizon_end, workcenters, jobs.values(), times)
@@ -437,7 +509,7 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             raise ScheduleInputError('The proposal costs could not be verified. Compute a new proposal.')
         _logger.warning('GridSync hid a lower bound that exceeded the verified proposal cost.')
         lower_bound = None
-    return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete)
+    return ScheduleResult(job_results, proposed_cost, current_cost, lower_bound, complete, method)
 
 
 def check_placements(start, end, workcenters, jobs, times, require_prices=True):
