@@ -24,6 +24,7 @@
                         </group>
                     </group>
                     <group string="Electricity emissions estimate">
+                        <field name="grid_use_gb_carbon" readonly="not grid_energy_can_edit"/>
                         <field name="grid_use_carbon_factor" readonly="not grid_energy_can_edit"/>
                         <field name="grid_carbon_factor" invisible="not grid_use_carbon_factor"
                                readonly="not grid_energy_can_edit"/>

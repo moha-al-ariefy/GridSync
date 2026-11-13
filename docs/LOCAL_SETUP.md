@@ -69,6 +69,8 @@ For two to six operations within one day, GridSync can check combinations of can
 
 If work centers in one proposal use different tariff currencies, GridSync shows proposal costs in the company currency. It uses the Odoo exchange rate dated on or before the start of the proposal window. The proposal notes show the rate and its date. Add a missing rate in Odoo before computing, and recompute if a rate changes before Apply. Saved meter results use the original site tariff currency.
 
+For a work center on the Great Britain electricity grid, enable **Use GB carbon intensity** under **Electricity**. In **GB carbon intensity**, sync the UTC dates covered by the proposal. Choose **GB electricity emissions** as the schedule objective. The proposal shows estimated kg CO₂. The data notes say how much of the window is covered and how many intervals use forecasts. Missing intervals cannot be used, and Apply rechecks the intensity and whether each interval is a forecast or a published estimate.
+
 ## Apply or revert a proposal
 
 For a complete proposal with moves, review the dates and costs, then select **Review and apply** and confirm. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.

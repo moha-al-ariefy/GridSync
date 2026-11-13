@@ -7,7 +7,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
 GRID_MANAGER = 'mrp_grid_scheduler.group_grid_manager'
 ENERGY_FIELDS = {'grid_power_kw', 'grid_power_reference', 'grid_tariff_source_id', 'grid_allow_shift',
-                 'grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference'}
+                 'grid_use_gb_carbon', 'grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference'}
 
 
 class MrpWorkcenter(models.Model):
@@ -28,6 +28,10 @@ class MrpWorkcenter(models.Model):
     grid_allow_shift = fields.Boolean(
         string='Allow schedule suggestions', copy=False, groups=GRID_PLANNER,
         help='Include this work center in GridSync scheduling suggestions.',
+    )
+    grid_use_gb_carbon = fields.Boolean(
+        'Use GB carbon intensity', groups=GRID_PLANNER, copy=False,
+        help='Enable only for a work center supplied by the Great Britain electricity grid.',
     )
     grid_use_carbon_factor = fields.Boolean('Estimate emissions from a documented factor', groups=GRID_PLANNER, copy=False)
     grid_carbon_factor = fields.Float('Electricity factor (g CO₂e/kWh)', digits=(12, 6), groups=GRID_PLANNER, copy=False)
@@ -72,7 +76,7 @@ class MrpWorkcenter(models.Model):
             if not 0 <= center.grid_carbon_factor <= 10_000 or not (center.grid_carbon_reference or '').strip():
                 raise ValidationError(_('Enter a non-negative electricity factor up to 10,000 g CO₂e/kWh and its source.'))
 
-    @api.constrains('grid_power_kw', 'grid_tariff_source_id', 'grid_allow_shift', 'company_id')
+    @api.constrains('grid_power_kw', 'grid_tariff_source_id', 'grid_allow_shift', 'grid_use_gb_carbon', 'company_id')
     def _check_grid_energy_settings(self):
         # Manufacturing users can still edit ordinary fields even if they cannot read the GridSync fields.
         for workcenter in self.sudo():
@@ -82,8 +86,8 @@ class MrpWorkcenter(models.Model):
             tariff = workcenter.grid_tariff_source_id
             if tariff and tariff.company_id != workcenter.company_id:
                 raise ValidationError(_('The work center and its electricity tariff must belong to the same company.'))
-            if workcenter.grid_allow_shift and (power <= 0 or not tariff.active):
-                raise ValidationError(_('Set operating power and choose an active tariff before allowing schedule suggestions.'))
+            if workcenter.grid_allow_shift and (power <= 0 or not (tariff.active or workcenter.grid_use_gb_carbon)):
+                raise ValidationError(_('Set operating power and choose an active tariff or enable GB carbon intensity before allowing schedule suggestions.'))
 
 
 class GridTariffSource(models.Model):

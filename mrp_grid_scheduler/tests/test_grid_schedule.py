@@ -125,6 +125,37 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual({str(key): item.proposed.start.isoformat() for key, item in replay.jobs.items()},
                          {key: item['start'] for key, item in run.snapshot['result'].items()})
 
+    def test_gb_carbon_proposal_uses_intensity_and_rechecks_the_source(self):
+        _production, (order,) = self.make_production([('Press', self.center, 30)])
+        order.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.objective = 'gb_carbon'
+        with self.assertRaisesRegex(UserError, 'Great Britain'):
+            run.action_compute()
+        self.center.sudo().write({'grid_use_gb_carbon': True, 'grid_tariff_source_id': False})
+        day = self.env['grid.carbon.day'].sudo().create({'day': DAY.date(), 'company_id': self.company.id})
+        intervals = self.env['grid.carbon.interval'].sudo().create([
+            {'day_id': day.id, 'start_utc': at(8), 'actual': 400, 'has_actual': True},
+            {'day_id': day.id, 'start_utc': at(13), 'forecast': 100, 'has_forecast': True},
+        ])
+        run.action_compute()
+        self.assertTrue(run.complete)
+        self.assertEqual(run.proposed_carbon_kg, 1)
+        self.assertEqual(run.current_carbon_kg, 4)
+        self.assertEqual(run.proposed_cost, 0)
+        self.assertEqual(run.line_ids.proposed_start, at(13))
+        with self.assertRaisesRegex(UserError, 'Start a new run'):
+            run.objective = 'cost'
+        intervals[1].write({'actual': 100, 'has_actual': True})
+        with self.assertRaisesRegex(UserError, 'Carbon intensity'):
+            run._change_schedule('apply')
+        self.assertEqual(order.date_start, at(8))
+        intervals[1].has_actual = False
+        run._change_schedule('apply')
+        self.assertEqual(order.date_start, at(13))
+        run._change_schedule('revert')
+        self.assertEqual(order.date_start, at(8))
+
     def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
         self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
         _production, (operation,) = self.make_production([('Press', self.center, 60)])

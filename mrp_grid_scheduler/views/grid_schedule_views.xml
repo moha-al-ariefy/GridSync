@@ -10,7 +10,9 @@
                 <field name="date_to"/>
                 <field name="workcenter_ids" widget="many2many_tags" optional="show"/>
                 <field name="currency_id" optional="show"/>
-                <field name="proposed_cost" optional="show"/>
+                <field name="objective" optional="show"/>
+                <field name="proposed_cost" optional="show" invisible="objective != 'cost'"/>
+                <field name="proposed_carbon_kg" optional="show" invisible="objective != 'gb_carbon'"/>
                 <field name="unscheduled_count" optional="show"/>
                 <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-muted="state == 'reverted'"/>
                 <field name="company_id" groups="base.group_multi_company"/>
@@ -40,9 +42,9 @@
                     <field name="has_current_cost" invisible="1"/>
                     <field name="has_lower_bound" invisible="1"/>
                     <p class="alert alert-info" role="status" invisible="state != 'proposed' or not complete or not moved_count">
-                        Review the dates and estimated costs before applying this proposal.
+                        Review the dates and estimates before applying this proposal.
                     </p>
-                    <p class="alert alert-info" role="status" invisible="state != 'proposed' or not has_current_cost or moved_count">
+                    <p class="alert alert-info" role="status" invisible="state != 'proposed' or not has_current_cost or moved_count or objective != 'cost'">
                         No lower-cost schedule was found. The current bookings stay in place.
                     </p>
                     <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
@@ -51,6 +53,7 @@
                     </p>
                     <group>
                         <group>
+                            <field name="objective" readonly="state != 'draft'"/>
                             <field name="date_from" readonly="state != 'draft'"/>
                             <field name="date_to" readonly="state != 'draft'"/>
                             <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
@@ -65,13 +68,18 @@
                         unplanned or planned to start in this period, are included. Other bookings stay in place.
                     </p>
                     <group invisible="state == 'draft'">
-                        <group string="Estimated energy cost">
+                        <group string="Estimated energy cost" invisible="objective != 'cost'">
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="proposed_cost"/>
                             <field name="current_cost" invisible="not has_current_cost"/>
                             <field name="saving" invisible="not has_current_cost"/>
                             <field name="lower_bound" invisible="not has_lower_bound"/>
                             <field name="gap" invisible="not has_lower_bound"/>
+                        </group>
+                        <group string="Estimated electricity emissions" invisible="objective != 'gb_carbon'">
+                            <field name="proposed_carbon_kg"/>
+                            <field name="current_carbon_kg" invisible="not has_current_cost"/>
+                            <field name="carbon_lower_bound_kg" invisible="not has_lower_bound"/>
                         </group>
                         <group string="Operations">
                             <field name="job_count"/>
@@ -116,8 +124,10 @@
                                     <field name="proposed_start"/>
                                     <field name="proposed_end"/>
                                     <field name="energy_kwh" optional="show"/>
-                                    <field name="current_cost" invisible="not has_current_cost"/>
-                                    <field name="proposed_cost" invisible="status == 'unscheduled'"/>
+                                    <field name="current_cost" column_invisible="parent.objective != 'cost'" invisible="not has_current_cost"/>
+                                    <field name="proposed_cost" column_invisible="parent.objective != 'cost'" invisible="status == 'unscheduled'"/>
+                                    <field name="current_carbon_kg" column_invisible="parent.objective != 'gb_carbon'" invisible="not has_current_cost"/>
+                                    <field name="proposed_carbon_kg" column_invisible="parent.objective != 'gb_carbon'" invisible="status == 'unscheduled'"/>
                                     <field name="status" widget="badge" decoration-info="status == 'moved'"
                                            decoration-success="status == 'unchanged'" decoration-warning="status == 'unscheduled'"/>
                                     <field name="reason"/>
@@ -128,12 +138,12 @@
                             <group><field name="method_label" invisible="state == 'draft'"/></group>
                             <field name="data_notes" class="o_gridsync_notes"/>
                             <ul class="text-muted mt-3">
-                                <li>Costs are estimates: operating power × working time × the tariff price for each 15-minute interval. They are not metered energy or a supply bill.</li>
+                                <li invisible="objective != 'cost'">Costs are estimates: operating power × working time × the tariff price for each 15-minute interval. They are not metered energy or a supply bill.</li>
                                 <li>Energy is counted only during working hours. A work center stays booked from an operation's start to its end, including breaks.</li>
-                                <li>Missing prices are never filled. Times without prices are not used.</li>
+                                <li>Times with missing data for the selected objective are skipped.</li>
                                 <li>Small runs search combinations of start times and stop after a fixed search limit. Search result shows whether all available start-time combinations were checked. Operations start on 15-minute marks, at the start of working hours or at their current time.</li>
                                 <li>The current schedule is used for cost comparison when its bookings are feasible and have prices. The lower bound is shown only when every operation is scheduled. It assumes each operation could take its cheapest time on its own, ignoring the others, within the same start times. No schedule using those start times can cost less.</li>
-                                <li>Carbon intensity is not used. The proposal is based on price only.</li>
+                                <li invisible="objective != 'gb_carbon'">Carbon mode uses NESO grid intensity and documented operating power. Values estimate electricity emissions in kg CO₂.</li>
                             </ul>
                         </page>
                     </notebook>
@@ -165,6 +175,9 @@
                 <field name="proposed_cost" invisible="1"/>
                 <field name="current_cost" invisible="1"/>
                 <field name="lower_bound" invisible="1"/>
+                <field name="proposed_carbon_kg" invisible="1"/>
+                <field name="current_carbon_kg" invisible="1"/>
+                <field name="carbon_lower_bound_kg" invisible="1"/>
             </pivot>
         </field>
     </record>
@@ -178,6 +191,9 @@
                 <field name="proposed_cost" invisible="1"/>
                 <field name="current_cost" invisible="1"/>
                 <field name="lower_bound" invisible="1"/>
+                <field name="proposed_carbon_kg" invisible="1"/>
+                <field name="current_carbon_kg" invisible="1"/>
+                <field name="carbon_lower_bound_kg" invisible="1"/>
             </graph>
         </field>
     </record>

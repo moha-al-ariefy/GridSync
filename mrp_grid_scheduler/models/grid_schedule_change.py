@@ -122,6 +122,8 @@ class GridScheduleRun(models.Model):
         for production in workorders.production_id:
             if manufacturing[str(production.id)] != guard['manufacturing'].get(str(production.id)):
                 raise UserError(_('The manufacturing order %s changed. No dates were updated.', production.display_name))
+        if operation == 'apply' and self.objective == 'gb_carbon':
+            self.env.cr.execute('LOCK TABLE grid_carbon_interval IN SHARE MODE NOWAIT')
         if operation == 'apply':
             self._apply_reviewed_schedule(lines, moved, workorders, before, manufacturing)
         else:
@@ -142,11 +144,13 @@ class GridScheduleRun(models.Model):
         proposed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in lines}
         self._check_future_dates(moved, proposed)
         inputs, jobs, sources = self._validate_schedule_dates(workorders, proposed, start, end, True)
-        source_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'))
+        source_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'), source.get('carbon_basis'))
                        for source in sources]
-        frozen_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'))
+        frozen_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'), source.get('carbon_basis'))
                        for source in self.snapshot['sources']]
         if dump_inputs(start, end, inputs, jobs) != self.snapshot['inputs'] or source_keys != frozen_keys:
+            if self.objective == 'gb_carbon':
+                raise UserError(_('Carbon intensity, working hours or bookings changed. Compute a new proposal.'))
             raise UserError(_('Prices, exchange rates, working hours or bookings changed. Compute a new proposal.'))
         self._validate_restore_dates(workorders, before)
         self._write_schedule_dates(moved, proposed)
