@@ -120,6 +120,24 @@ The meter gateway needs to measure and timestamp intervals before sending them. 
 
 The Phase 6 local restore rehearsal used an Odoo ZIP with its filestore. All 9 proposals, 2 meter results (including a saved bill comparison), and 1 test gateway batch matched the source database. A second restore on an isolated copy verified that a posted test vendor bill, its bill line, and the linked GridSync comparison survived together. Repeat these checks on the target before signing off. On Windows, point Odoo's `pg_path` to the PostgreSQL `bin` directory if it cannot find `pg_dump`.
 
+## Replay a published two-step route
+
+Use the [walkthrough script](../scripts/load_walkthrough.py) from the repository root with the Odoo shell. It runs on a neutralized Odoo test database and uses the GridSync access of the Odoo administrator. Each run adds a labeled site, work center, bill of materials, confirmed manufacturing order and proposal. The script creates a fresh set of records each time it succeeds.
+
+On Windows, adjust these paths and the database name to match the test installation.
+
+```powershell
+$odoo = 'C:\Program Files\Odoo 19.0.20260714'
+$repo = (Get-Location).Path
+Get-Content .\scripts\load_walkthrough.py -Raw | & "$odoo\python\python.exe" "$odoo\server\odoo-bin" shell -c "$odoo\server\odoo.conf" --addons-path "$odoo\server\odoo\addons,$repo" -d YOUR_TEST_DATABASE --no-http
+```
+
+The script fetches [Energy-Charts DE-LU](https://api.energy-charts.info/) wholesale prices and copies a continuous window to tomorrow UTC. The tariff records the original publication period and the replay date. The work orders and 40 kW draw are test assumptions. The cost comparison is in EUR and uses the published price values.
+
+1. Open the proposal printed by the script. In **Operations**, check that **Cut test part** finishes before **Finish test part** starts. Compare the original and proposed costs. Use the figures printed by the script.
+2. Select **Review and apply**, confirm, and open the manufacturing order printed by the script. Check that the two work orders have the proposed dates and still run in order.
+3. Go back to the proposal, select **Review revert**, and confirm. Check that the original work-order dates are back. Do both actions before either booking starts.
+
 ## Test the full workflow in Odoo
 
 In GridSync, use **New** from a list. **Save** on a new record takes you back to the list, where you can reopen the record. **Save** on an existing record keeps you there. In Manufacturing, use Odoo's cloud icon to save the bill of materials before adding its first operation. The empty **Operations** tab has an **Add Operation** button.

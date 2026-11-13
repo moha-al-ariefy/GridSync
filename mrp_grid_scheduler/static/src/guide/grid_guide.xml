@@ -34,6 +34,7 @@
                         <strong>Compare the energy bill.</strong> Open the saved energy result when the bill arrives. Enter the energy charge or, with Odoo Billing access, select a posted vendor bill line for the same meter and exact period. Check the untaxed subtotal before saving.
                     </li>
                 </ol>
+                <p>On a test database, see Local setup in the repository for a two-step walkthrough with published prices.</p>
                 <button type="button" class="btn btn-secondary" t-on-click="closeTutorial">Close tutorial</button>
             </section>
             <div t-if="!state.sources.length" class="o_gridsync_empty">

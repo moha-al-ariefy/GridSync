@@ -98,7 +98,7 @@ The scheduler now tries improving existing bookings one at a time for multi-step
 - [x] Link site records to work centers and their tariffs so planners can filter runs and results by factory.
 - [x] Review partial Apply and Revert with unchanged, unscheduled and dependent operations in the same proposal. Test the exact set of bookings that will move and can be restored.
 - [x] Allow unrelated booking and leave edits after Compute when the reviewed schedule and its revert dates still pass live validation. Keep concurrency checks for the operations that move.
-- [ ] Add a repeatable walkthrough with clearly labeled test work orders and a published time-varying tariff. Keep it opt-in and verify a multi-step route in Odoo.
+- [x] Add a repeatable walkthrough with published prices and labeled test work orders. The [local setup](docs/LOCAL_SETUP.md#replay-a-published-two-step-route) covers loading, applying and reverting the two-step route.
 
 ## Build order
 
