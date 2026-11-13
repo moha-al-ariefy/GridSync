@@ -13,7 +13,7 @@ from ..services.scheduler import (
 
 
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
-INPUT_FIELDS = {'company_id', 'date_from', 'date_to', 'workcenter_ids', 'objective'}
+INPUT_FIELDS = {'company_id', 'date_from', 'date_to', 'workcenter_ids', 'objective', 'carbon_price'}
 RESULT_FIELDS = {
     'state', 'computed_at', 'method', 'currency_id', 'proposed_cost', 'current_cost', 'lower_bound',
     'has_current_cost', 'has_lower_bound', 'complete',
@@ -78,7 +78,9 @@ class GridScheduleRun(models.Model):
     )
     objective = fields.Selection([
         ('cost', 'Electricity cost'), ('gb_carbon', 'GB electricity emissions'),
+        ('gb_combined', 'GB cost and emissions'),
     ], required=True, default='cost')
+    carbon_price = fields.Float('Carbon price per tonne (company currency)', digits=(16, 4))
     proposed_carbon_kg = fields.Float('Proposed emissions (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
     current_carbon_kg = fields.Float('Current emissions (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
     carbon_lower_bound_kg = fields.Float('Emissions lower bound (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
@@ -174,13 +176,13 @@ class GridScheduleRun(models.Model):
         ], order='id', limit=MAX_JOBS + 1)
         if len(workorders) > MAX_JOBS:
             raise UserError(_('Choose fewer work centers or a shorter period. A run can include up to %s operations.', MAX_JOBS))
-        center_inputs, notes, sources = self._workcenter_inputs(centers, workorders, start, end)
+        center_inputs, notes, sources, components = self._workcenter_inputs(centers, workorders, start, end)
         job_inputs = self._job_inputs(workorders, start)
         try:
             result = schedule(start, end, center_inputs, job_inputs)
         except ScheduleInputError as exc:
             raise UserError(str(exc)) from exc
-        self._save_result(start, end, now, workorders, center_inputs, job_inputs, result, notes, sources)
+        self._save_result(start, end, now, workorders, center_inputs, job_inputs, result, notes, sources, components)
         return True
 
     def _check_workcenters(self, require_tariff=True):
@@ -191,11 +193,11 @@ class GridScheduleRun(models.Model):
             tariff = center.grid_tariff_source_id
             if not center.active:
                 raise UserError(_('The work center %s is archived.', center.name))
-            if require_tariff and (not center.grid_allow_shift or center.grid_power_kw <= 0 or (self.objective == 'cost' and not tariff.active)):
+            if require_tariff and (not center.grid_allow_shift or center.grid_power_kw <= 0 or (self.objective != 'gb_carbon' and not tariff.active)):
                 raise UserError(_('Turn on schedule suggestions for %s and give it power and an active tariff.', center.name))
-            if center.company_id != self.company_id or (require_tariff and self.objective == 'cost' and tariff.company_id != self.company_id):
+            if center.company_id != self.company_id or (require_tariff and self.objective != 'gb_carbon' and tariff.company_id != self.company_id):
                 raise UserError(_('The work center and tariff for %s must belong to the proposal company.', center.name))
-            if require_tariff and self.objective == 'gb_carbon' and not center.grid_use_gb_carbon:
+            if require_tariff and self.objective != 'cost' and not center.grid_use_gb_carbon:
                 raise UserError(_('Confirm that %s uses the Great Britain electricity grid on its Electricity tab.', center.name))
             calendar = center.resource_calendar_id
             if not calendar:
@@ -242,8 +244,14 @@ class GridScheduleRun(models.Model):
         return factors, basis
 
     def _workcenter_inputs(self, centers, workorders, start, end, include_prices=True):
-        use_carbon = include_prices and self.objective == 'gb_carbon'
-        tariffs = centers.grid_tariff_source_id if include_prices and not use_carbon else self.env['grid.tariff.source']
+        combined = include_prices and self.objective == 'gb_combined'
+        use_carbon = include_prices and self.objective != 'cost'
+        tariffs = centers.grid_tariff_source_id if include_prices and self.objective != 'gb_carbon' else self.env['grid.tariff.source']
+        if combined and (not math.isfinite(self.carbon_price) or not 0 < self.carbon_price <= 1_000_000):
+            raise UserError(_('Enter a carbon price above zero and up to 1,000,000 per tonne.'))
+        if combined and any(tariff.currency_id != self.company_id.currency_id or tariff.source_type == 'energy_charts'
+                            for tariff in tariffs):
+            raise UserError(_('Use a Great Britain site tariff in the company currency for each work center.'))
         carbon, carbon_basis = self._gb_carbon_inputs(start, end) if use_carbon else ({}, {})
         slots = self.env['grid.tariff.slot'].search([
             ('source_id', 'in', tariffs.ids), ('is_current', '=', True),
@@ -263,7 +271,7 @@ class GridScheduleRun(models.Model):
             '|', ('resource_id', 'in', centers.resource_id.ids),
             '&', ('resource_id', '=', False), ('calendar_id', 'in', centers.resource_calendar_id.ids),
         ], ['date_from', 'date_to', 'calendar_id', 'resource_id'])
-        inputs = []
+        inputs, components = [], {}
         for center in centers:
             calendar = center.resource_calendar_id
             intervals = calendar._work_intervals_batch(
@@ -272,17 +280,28 @@ class GridScheduleRun(models.Model):
             )[center.resource_id.id]
             busy = [(leave.date_from, leave.date_to) for leave in leaves if leave.resource_id == center.resource_id or (
                 not leave.resource_id and leave.calendar_id == calendar)]
+            tariff_prices = prices.get(center.grid_tariff_source_id.id, {})
+            if combined:
+                components[center.id] = (tariff_prices, carbon)
+                scores = {slot: price + carbon[slot] * self.carbon_price / 1000
+                          for slot, price in tariff_prices.items() if slot in carbon}
+            else:
+                scores = carbon if use_carbon else tariff_prices
             inputs.append(WorkcenterInput(
                 key=center.id, power_kw=center.grid_power_kw,
                 working=tuple((_utc(low), _utc(high)) for low, high, _records in intervals),
-                busy=tuple(sorted(busy)), prices=carbon if use_carbon else prices.get(center.grid_tariff_source_id.id, {}),
+                busy=tuple(sorted(busy)), prices=scores,
             ))
         expected = (end - start) // STEP
         notes, sources = [], []
         if use_carbon:
             notes.append(_('NESO Great Britain national grid, CC BY 4.0. %(found)s of %(expected)s quarter-hours covered; %(forecast)s use a forecast.',
                            found=len(carbon), expected=expected, forecast=list(carbon_basis.values()).count('forecast')))
-            sources.append({'id': 'neso-gb', 'currency': False, 'carbon_basis': carbon_basis})
+            sources.append({'id': 'neso-gb', 'currency': False, 'carbon_basis': carbon_basis,
+                            **({'carbon_factors': {slot.isoformat(): factor for slot, factor in carbon.items()}} if combined else {})})
+            if combined:
+                notes.append(_('Carbon price: %(price)s %(currency)s per tonne of CO₂.',
+                               price=self.carbon_price, currency=self.company_id.currency_id.name))
         for tariff in tariffs:
             found = len(prices[tariff.id])
             label = dict(tariff._fields['source_type']._description_selection(self.env))[tariff.source_type]
@@ -318,7 +337,7 @@ class GridScheduleRun(models.Model):
                            name=center.name, power=center.grid_power_kw,
                            reference=center.grid_power_reference or _('no reference'),
                            calendar=center.resource_calendar_id.name))
-        return inputs, notes, sources
+        return inputs, notes, sources, components
 
     def _job_inputs(self, workorders, start):
         keys = set(workorders.ids)
@@ -345,8 +364,28 @@ class GridScheduleRun(models.Model):
             ))
         return jobs
 
-    def _save_result(self, start, end, now, workorders, center_inputs, job_inputs, result, notes, sources):
+    def _combined_amounts(self, placement, center, components):
+        if not placement:
+            return 0, 0
+        tariffs, carbon = components
+        cost = emissions = 0
+        for start, end in center.working:
+            start, end = max(start, placement.start), min(end, placement.end)
+            if start >= end:
+                continue
+            slot = floor_slot(start)
+            while slot < end:
+                hours = (min(end, slot + STEP) - max(start, slot)).total_seconds() / 3600
+                kwh = center.power_kw * hours
+                cost += kwh * tariffs[slot] / 1000
+                emissions += kwh * carbon[slot] / 1000
+                slot += STEP
+        return cost, emissions
+
+    def _save_result(self, start, end, now, workorders, center_inputs, job_inputs, result, notes, sources, components):
         use_carbon = self.objective == 'gb_carbon'
+        combined = self.objective == 'gb_combined'
+        centers = {center.key: center for center in center_inputs}
         jobs = {job.key: job for job in job_inputs}
         lines = []
         for workorder in workorders:
@@ -354,10 +393,20 @@ class GridScheduleRun(models.Model):
             reason = _reason_text(self.env, item.status, item.reason)
             if use_carbon and item.status != 'unscheduled':
                 reason = _('Compared using estimated electricity emissions.')
-            elif use_carbon and item.reason == 'no_prices':
-                reason = _('Carbon intensity is missing for every suitable time.')
+            elif (use_carbon or combined) and item.reason == 'no_prices':
+                reason = _('The data required for this objective is missing for every suitable time.')
             if item.status == 'unscheduled' and workorder.date_start:
                 reason += ' ' + _('It keeps its current time.')
+            proposed_cost, current_cost = (item.proposed.cost if item.proposed else 0,
+                                           item.current.cost if item.current else 0)
+            proposed_carbon = current_carbon = 0
+            if combined:
+                center = centers[workorder.workcenter_id.id]
+                proposed_cost, proposed_carbon = self._combined_amounts(item.proposed, center, components[center.key])
+                current_cost, current_carbon = self._combined_amounts(item.current, center, components[center.key])
+            elif use_carbon:
+                proposed_carbon, current_carbon = proposed_cost, current_cost
+                proposed_cost = current_cost = 0
             lines.append({
                 'run_id': self.id, 'workorder_id': workorder.id, 'production_id': workorder.production_id.id,
                 'workcenter_id': workorder.workcenter_id.id, 'operation': workorder.name,
@@ -367,10 +416,8 @@ class GridScheduleRun(models.Model):
                 'proposed_start': item.proposed and item.proposed.start,
                 'proposed_end': item.proposed and item.proposed.end,
                 'energy_kwh': item.proposed.energy_kwh if item.proposed else 0,
-                'proposed_cost': item.proposed.cost if item.proposed and not use_carbon else 0,
-                'proposed_carbon_kg': item.proposed.cost if item.proposed and use_carbon else 0,
-                'current_cost': item.current.cost if item.current and not use_carbon else 0,
-                'current_carbon_kg': item.current.cost if item.current and use_carbon else 0,
+                'proposed_cost': proposed_cost, 'proposed_carbon_kg': proposed_carbon,
+                'current_cost': current_cost, 'current_carbon_kg': current_carbon,
                 'has_current_cost': bool(item.current), 'status': item.status, 'reason_code': item.reason,
                 'reason': reason,
             })
@@ -382,13 +429,14 @@ class GridScheduleRun(models.Model):
             'state': 'proposed', 'computed_at': now, 'method': result.method,
             'currency_id': (self.company_id.currency_id if use_carbon or any(source.get('exchange_rate') for source in sources)
                             else self.workcenter_ids.grid_tariff_source_id.currency_id).id,
-            'proposed_cost': 0 if use_carbon else result.proposed_cost,
-            'current_cost': 0 if use_carbon else result.current_cost or 0,
-            'proposed_carbon_kg': result.proposed_cost if use_carbon else 0,
-            'current_carbon_kg': (result.current_cost or 0) if use_carbon else 0,
+            'proposed_cost': sum(line['proposed_cost'] for line in lines) if combined else (0 if use_carbon else result.proposed_cost),
+            'current_cost': (sum(line['current_cost'] for line in lines) if result.current_cost is not None else 0)
+                            if combined else (0 if use_carbon else result.current_cost or 0),
+            'proposed_carbon_kg': sum(line['proposed_carbon_kg'] for line in lines),
+            'current_carbon_kg': sum(line['current_carbon_kg'] for line in lines) if result.current_cost is not None else 0,
             'carbon_lower_bound_kg': (result.lower_bound or 0) if use_carbon else 0,
             'has_current_cost': result.current_cost is not None,
-            'lower_bound': 0 if use_carbon else result.lower_bound or 0, 'has_lower_bound': result.lower_bound is not None,
+            'lower_bound': 0 if use_carbon else result.lower_bound or 0, 'has_lower_bound': not combined and result.lower_bound is not None,
             'complete': result.complete, 'job_count': len(statuses),
             'moved_count': statuses.count('moved'), 'unchanged_count': statuses.count('unchanged'),
             'unscheduled_count': statuses.count('unscheduled'), 'data_notes': '\n'.join(notes),
@@ -396,12 +444,12 @@ class GridScheduleRun(models.Model):
                 'computed_at': now.isoformat(), 'requested_period': [self.date_from.isoformat(), self.date_to.isoformat()],
                 'workorders': self._snapshot_workorders(workorders),
                 'manufacturing': self._snapshot_manufacturing(workorders.production_id),
-                'objective': self.objective, 'sources': sources, 'inputs': dump_inputs(start, end, center_inputs, job_inputs),
+                'objective': self.objective, 'carbon_price': self.carbon_price if combined else None, 'sources': sources, 'inputs': dump_inputs(start, end, center_inputs, job_inputs),
                 'result': {str(key): {
                     'status': item.status, 'reason': item.reason,
                     'start': item.proposed and item.proposed.start.isoformat(),
                     'end': item.proposed and item.proposed.end.isoformat(),
-                    ('carbon_kg' if use_carbon else 'cost'): item.proposed and item.proposed.cost,
+                    ('objective_score' if combined else 'carbon_kg' if use_carbon else 'cost'): item.proposed and item.proposed.cost,
                 } for key, item in result.jobs.items()},
             },
         })

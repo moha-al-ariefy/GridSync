@@ -156,6 +156,25 @@ class TestGridSchedule(TransactionCase):
         run._change_schedule('revert')
         self.assertEqual(order.date_start, at(8))
 
+    def test_combined_objective_reports_cost_and_carbon_separately(self):
+        self.company.currency_id = self.tariff.currency_id
+        self.center.sudo().grid_use_gb_carbon = True
+        _production, (order,) = self.make_production([('Press', self.center, 30)])
+        order.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        day = self.env['grid.carbon.day'].sudo().create({'day': DAY.date(), 'company_id': self.company.id})
+        self.env['grid.carbon.interval'].sudo().create([
+            {'day_id': day.id, 'start_utc': at(8), 'actual': 0, 'has_actual': True},
+            {'day_id': day.id, 'start_utc': at(13), 'forecast': 400, 'has_forecast': True},
+        ])
+        run = self.make_run()
+        run.write({'objective': 'gb_combined', 'carbon_price': 1000})
+        run.action_compute()
+        self.assertTrue(run.complete)
+        self.assertEqual(run.line_ids.proposed_start, at(8))
+        self.assertAlmostEqual(run.proposed_cost, 1)
+        self.assertEqual(run.proposed_carbon_kg, 0)
+        self.assertEqual(run.snapshot['carbon_price'], 1000)
+
     def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
         self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
         _production, (operation,) = self.make_production([('Press', self.center, 60)])
