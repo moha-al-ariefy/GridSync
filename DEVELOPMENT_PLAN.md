@@ -1,6 +1,6 @@
 # GridSync MRP development plan
 
-GridSync is an Odoo 19 manufacturing add-on I plan to build as `mrp_grid_scheduler`. It will compare production schedules using electricity prices and, when reliable data is available, carbon intensity. The features below are plans, not finished or production-ready work.
+GridSync runs as the `mrp_grid_scheduler` add-on on Odoo 19. It compares production schedules using electricity prices and Great Britain carbon data. The README covers the current app. This plan keeps the original priorities and the checks for rollout.
 
 The original [build plan](docs/GridSync_Build_Plan.pdf) covers the architecture, data model, scheduler, priorities and demo. Its technical, tariff and licensing details still need to be checked before building around them.
 
