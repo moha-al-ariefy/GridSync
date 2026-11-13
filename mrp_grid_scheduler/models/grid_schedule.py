@@ -1,7 +1,10 @@
+import logging
 import math
 from datetime import timedelta
 
 import pytz
+
+from psycopg2 import OperationalError
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
@@ -12,10 +15,14 @@ from ..services.scheduler import (
 )
 
 
+_logger = logging.getLogger(__name__)
+
+QUEUE_THRESHOLD = 500
+
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
 INPUT_FIELDS = {'company_id', 'date_from', 'date_to', 'workcenter_ids', 'objective', 'carbon_price'}
 RESULT_FIELDS = {
-    'state', 'computed_at', 'method', 'currency_id', 'proposed_cost', 'current_cost', 'lower_bound',
+    'state', 'queued_by', 'compute_error', 'computed_at', 'method', 'currency_id', 'proposed_cost', 'current_cost', 'lower_bound',
     'has_current_cost', 'has_lower_bound', 'complete',
     'proposed_carbon_kg', 'current_carbon_kg', 'carbon_lower_bound_kg', 'job_count', 'moved_count', 'unchanged_count',
     'unscheduled_count', 'data_notes', 'snapshot', 'line_ids',
@@ -59,6 +66,8 @@ class GridScheduleRun(models.Model):
     _check_company_auto = True
     _order = 'id desc'
 
+    _queued_runs = models.Index("(id) WHERE state = 'queued'")
+
     def _default_date_from(self):
         return ceil_slot(fields.Datetime.now())
 
@@ -68,7 +77,8 @@ class GridScheduleRun(models.Model):
     name = fields.Char(required=True, default=lambda self: self.env._('Schedule proposal'))
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
     state = fields.Selection([
-        ('draft', 'Draft'), ('proposed', 'Proposed'), ('applied', 'Applied'), ('reverted', 'Reverted'),
+        ('draft', 'Draft'), ('queued', 'Queued'), ('failed', 'Failed'),
+        ('proposed', 'Proposed'), ('applied', 'Applied'), ('reverted', 'Reverted'),
     ], default='draft', required=True, readonly=True, copy=False)
     date_from = fields.Datetime('Period start', required=True, default=_default_date_from)
     date_to = fields.Datetime('Period end', required=True, default=_default_date_to)
@@ -84,6 +94,8 @@ class GridScheduleRun(models.Model):
     proposed_carbon_kg = fields.Float('Proposed emissions (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
     current_carbon_kg = fields.Float('Current emissions (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
     carbon_lower_bound_kg = fields.Float('Emissions lower bound (kg CO₂)', digits=(20, 6), readonly=True, copy=False)
+    queued_by = fields.Many2one('res.users', readonly=True, copy=False)
+    compute_error = fields.Char(readonly=True, copy=False)
     computed_at = fields.Datetime(readonly=True, copy=False)
     method = fields.Char(readonly=True, copy=False)
     method_label = fields.Char(string="Search result", compute="_compute_method_label")
@@ -141,8 +153,13 @@ class GridScheduleRun(models.Model):
                 raise AccessError(_('Proposal results are set by GridSync.'))
             if values.get('company_id') and values['company_id'] not in self.env.companies.ids:
                 raise AccessError(_('The selected company is not available to this user.'))
-            if INPUT_FIELDS.intersection(values) and self.filtered(lambda run: run.state != 'draft'):
-                raise UserError(_('Start a new run to change the period or work centers.'))
+            if INPUT_FIELDS.intersection(values):
+                self.check_access('write')
+                if self.try_lock_for_update(allow_referencing=True) != self:
+                    raise UserError(_('A proposal is being updated. Try again shortly.'))
+                self.invalidate_recordset(['state'])
+                if self.filtered(lambda run: run.state != 'draft'):
+                    raise UserError(_('Start a new run to change the proposal settings.'))
         return super().write(values)
 
     def action_new_run(self):
@@ -158,9 +175,14 @@ class GridScheduleRun(models.Model):
         self.check_access('write')
         if not self.env.user.has_group(GRID_PLANNER):
             raise AccessError(_('Only GridSync planners can compute proposals.'))
-        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(%s, %s)', (5108845, self.id))
-        if not self.env.cr.fetchone()[0] or self.state != 'draft':
-            raise UserError(_('This proposal has already been computed. Start a new run instead.'))
+        if not self.try_lock_for_update(allow_referencing=True):
+            raise UserError(_('This proposal is being updated. Try again shortly.'))
+        self.invalidate_recordset(['state'])
+        if self.state != 'draft':
+            raise UserError(_('This proposal has already been submitted. Start a new run instead.'))
+        return self._compute_proposal(allow_queue=True)
+
+    def _compute_proposal(self, *, allow_queue=False):
         now = fields.Datetime.now()
         start, end = ceil_slot(max(self.date_from, now)), floor_slot(self.date_to)
         if end <= start:
@@ -176,6 +198,10 @@ class GridScheduleRun(models.Model):
         ], order='id', limit=MAX_JOBS + 1)
         if len(workorders) > MAX_JOBS:
             raise UserError(_('Choose fewer work centers or a shorter period. A run can include up to %s operations.', MAX_JOBS))
+        if allow_queue and len(workorders) > QUEUE_THRESHOLD:
+            self.sudo().write({'state': 'queued', 'queued_by': self.env.uid})
+            self.env.ref('mrp_grid_scheduler.ir_cron_grid_schedule_queue').sudo()._trigger()
+            return True
         center_inputs, notes, sources, components = self._workcenter_inputs(centers, workorders, start, end)
         job_inputs = self._job_inputs(workorders, start)
         try:
@@ -184,6 +210,41 @@ class GridScheduleRun(models.Model):
             raise UserError(str(exc)) from exc
         self._save_result(start, end, now, workorders, center_inputs, job_inputs, result, notes, sources, components)
         return True
+
+    @api.model
+    def _cron_compute_queue(self):
+        cron = self.env['ir.cron']
+        queue = self.sudo()
+        domain = [('state', '=', 'queued')]
+        for run in queue.search(domain, order='id', limit=4):
+            if not run.try_lock_for_update(allow_referencing=True):
+                continue
+            run.invalidate_recordset(['state'])
+            if run.state != 'queued':
+                continue
+            run._compute_queued_proposal()
+            if not cron._commit_progress(1, remaining=queue.search_count(domain)):
+                break
+
+    def _compute_queued_proposal(self):
+        self.ensure_one()
+        planner = self.queued_by
+        company = self.company_id
+        try:
+            with self.env.cr.savepoint():
+                if (not planner.active or company not in planner.company_ids
+                        or not planner.has_group(GRID_PLANNER)):
+                    raise AccessError(_('The requesting planner no longer has access to this company.'))
+                run = self.with_user(planner).with_context({}, allowed_company_ids=[company.id])
+                run.check_access('write')
+                run._compute_proposal()
+        except (UserError, AccessError) as exc:
+            self.write({'state': 'failed', 'compute_error': str(exc)[:500]})
+        except OperationalError:
+            raise
+        except Exception:
+            _logger.exception('Could not compute queued GridSync proposal %s', self.id)
+            self.write({'state': 'failed', 'compute_error': _('Computation failed. Check the Odoo log.')})
 
     def _check_workcenters(self, require_tariff=True):
         centers = self.workcenter_ids

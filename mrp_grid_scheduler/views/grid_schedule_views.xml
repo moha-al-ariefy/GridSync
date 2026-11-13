@@ -14,7 +14,7 @@
                 <field name="proposed_cost" optional="show" invisible="objective == 'gb_carbon'"/>
                 <field name="proposed_carbon_kg" optional="show" invisible="objective == 'cost'"/>
                 <field name="unscheduled_count" optional="show"/>
-                <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'applied'" decoration-muted="state == 'reverted'"/>
+                <field name="state" widget="badge" decoration-info="state in ('draft', 'queued')" decoration-danger="state == 'failed'" decoration-success="state == 'applied'" decoration-muted="state == 'reverted'"/>
                 <field name="company_id" groups="base.group_multi_company"/>
             </list>
         </field>
@@ -51,6 +51,12 @@
                         Some operations could not be scheduled. Any existing bookings for them stay in place.
                         This proposal cannot be applied as a whole.
                     </p>
+                    <p class="alert alert-info" role="status" invisible="state != 'queued'">
+                        This proposal is queued. Refresh this page after the scheduler has had time to run.
+                    </p>
+                    <div class="alert alert-warning" role="alert" invisible="state != 'failed'">
+                        <field name="compute_error" nolabel="1"/>
+                    </div>
                     <group>
                         <group>
                             <field name="objective" readonly="state != 'draft'"/>
@@ -68,7 +74,7 @@
                         Choose work centers with schedule suggestions turned on. Operations that are ready or waiting, and either
                         unplanned or planned to start in this period, are included. Other bookings stay in place.
                     </p>
-                    <group invisible="state == 'draft'">
+                    <group invisible="state in ('draft', 'queued', 'failed')">
                         <group string="Estimated energy cost" invisible="objective == 'gb_carbon'">
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="proposed_cost"/>
@@ -101,7 +107,7 @@
                             <field name="reverted_by"/>
                         </group>
                     </group>
-                    <notebook invisible="state == 'draft'">
+                    <notebook invisible="state in ('draft', 'queued', 'failed')">
                         <page string="Operations" name="lines">
                             <field name="line_ids">
                                 <list create="0" delete="0" edit="0"

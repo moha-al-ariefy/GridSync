@@ -175,6 +175,38 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(run.proposed_carbon_kg, 0)
         self.assertEqual(run.snapshot['carbon_price'], 1000)
 
+    def test_queue_computes_without_applying(self):
+        _production, (order,) = self.make_production([('Press', self.center, 30)])
+        order.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        with patch('odoo.addons.mrp_grid_scheduler.models.grid_schedule.QUEUE_THRESHOLD', 0):
+            run.action_compute()
+        self.assertEqual(run.state, 'queued')
+        self.assertEqual(run.queued_by, self.planner)
+        self.assertFalse(run.line_ids)
+        with self.assertRaises(UserError):
+            run.action_compute()
+        with self.assertRaises(UserError):
+            run.date_to = at(16)
+        cron = self.env.ref('mrp_grid_scheduler.ir_cron_grid_schedule_queue')
+        with self.enter_registry_test_mode():
+            self.assertIs(cron.method_direct_trigger(), True)
+        self.assertEqual(run.state, 'proposed')
+        self.assertEqual(run.line_ids.proposed_start, at(13))
+        self.assertEqual(order.date_start, at(8))
+
+    def test_queue_stops_when_the_planner_loses_access(self):
+        self.make_production([('Press', self.center, 30)])
+        run = self.make_run()
+        with patch('odoo.addons.mrp_grid_scheduler.models.grid_schedule.QUEUE_THRESHOLD', 0):
+            run.action_compute()
+        self.assertEqual(run.state, 'queued')
+        self.planner.sudo().active = False
+        run.sudo()._compute_queued_proposal()
+        self.assertEqual(run.sudo().state, 'failed')
+        self.assertIn('no longer has access', run.sudo().compute_error)
+        self.assertFalse(run.sudo().line_ids)
+
     def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
         self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
         _production, (operation,) = self.make_production([('Press', self.center, 60)])

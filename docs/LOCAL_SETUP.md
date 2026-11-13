@@ -73,6 +73,8 @@ For a work center on the Great Britain electricity grid, enable **Use GB carbon 
 
 Choose **GB cost and emissions** to account for both signals. Use a tariff for the same GB site in the company currency and enter the internal carbon price per tonne. GridSync adds the carbon charge when comparing placements and shows electricity cost and estimated emissions separately. An interval needs both signals to be usable.
 
+A proposal with more than 500 operations goes into the background queue. Refresh the proposal to see its result. The worker computes one proposal at a time using the requesting planner's company access. If the period expires or access changes while it waits, the proposal shows the failure and can be copied into a new draft.
+
 ## Apply or revert a proposal
 
 For a complete proposal with moves, review the dates and costs, then select **Review and apply** and confirm. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
