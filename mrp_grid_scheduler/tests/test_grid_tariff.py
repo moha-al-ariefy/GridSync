@@ -1,9 +1,11 @@
 import json
+from datetime import datetime, timedelta
+from hashlib import sha256
 from unittest.mock import MagicMock, patch
 
 from requests.exceptions import ConnectionError
 
-from odoo import Command
+from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
@@ -96,6 +98,9 @@ class TestGridTariff(TransactionCase):
         self.assertEqual(slot.price_per_mwh, -3.5)
         log = self.env['grid.tariff.sync'].search([('source_id', '=', self.source.id)])
         self.assertEqual((log.state, log.inserted, log.missing), ('success', 1, 1))
+        self.assertEqual(log.http_status, 200)
+        self.assertEqual(log.payload_hash, sha256(response.iter_content.return_value[0]).hexdigest())
+        self.assertGreaterEqual(log.duration_ms, 0)
         with self.assertRaises(UserError):
             self.source.with_user(self.manager).action_sync_energy_charts()
         log.sudo().write({'next_allowed_at': '2026-01-01 00:00:00'})
@@ -126,6 +131,30 @@ class TestGridTariff(TransactionCase):
         self.assertEqual(source.last_sync_at, last_sync)
         self.assertEqual(source.slot_ids.sorted('start_utc').mapped('price_per_mwh'), saved)
         self.assertEqual(source.sync_ids.sorted('id', reverse=True)[0].state, 'failed')
+
+    def test_sync_failure_backoff_and_retry_after(self):
+        now = datetime(2030, 1, 7, 10)
+        source = self.source.with_user(self.manager)
+        request = 'odoo.addons.mrp_grid_scheduler.models.grid_tariff.requests.get'
+        with patch(request, side_effect=ConnectionError) as fetch:
+            for elapsed, wait, streak in ((0, 5, 1), (5, 10, 2)):
+                moment = now + timedelta(minutes=elapsed)
+                with patch.object(fields.Datetime, 'now', return_value=moment):
+                    source.action_sync_energy_charts()
+                    log = source.sync_ids.sorted('id')[-1]
+                    self.assertEqual(log.failure_streak, streak)
+                    self.assertEqual(log.next_allowed_at, moment + timedelta(minutes=wait))
+                    with self.assertRaises(UserError):
+                        source.action_sync_energy_charts()
+            self.assertEqual(fetch.call_count, 2)
+        response = MagicMock(status_code=429, headers={'Retry-After': 'Mon, 07 Jan 2030 10:17:00 GMT'})
+        response.__enter__.return_value = response
+        with patch(request, return_value=response), patch.object(
+                fields.Datetime, 'now', return_value=now + timedelta(minutes=15)):
+            source.action_sync_energy_charts()
+        log = source.sync_ids.sorted('id')[-1]
+        self.assertEqual(log.http_status, 429)
+        self.assertEqual(log.next_allowed_at, now + timedelta(minutes=17))
 
     def test_native_market_sync_keeps_each_markets_prices_separate(self):
         model = self.env['grid.tariff.source'].with_user(self.manager)

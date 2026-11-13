@@ -33,7 +33,7 @@ Give a manufacturing user the GridSync Planner role, or use the GridSync Manager
 
 Under Tariffs, a GridSync Manager can choose **Energy-Charts day-ahead**, select a **Market**, save, and select **Sync prices**. Germany and Luxembourg, Austria, Belgium, France, and the Netherlands use the same connector. Create a separate source for each market. Use these wholesale prices for site costs only if the site contract follows that market. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
 
-Automatic sync is on by default for each company. Odoo checks every five minutes while its scheduled actions are running. Opening Overview or Tariffs also checks for a refresh if the last attempt was at least five minutes ago. An Odoo administrator can turn it off under **GridSync > Settings**. GridSync managers can still use **Sync prices**.
+Automatic sync is on by default for each company. Odoo checks every five minutes while its scheduled actions are running. Opening Overview or Tariffs also checks for a refresh if the last attempt was at least five minutes ago. An Odoo administrator can turn it off under **GridSync > Settings**. GridSync managers can still use **Sync prices**. After a failed refresh, Load history shows when the next attempt is allowed. Use the optional columns to see the HTTP status, fetch time, and response hash.
 
 The DE-LU feed shows published wholesale day-ahead prices for Germany and Luxembourg. Overview shows the last successful refresh and warns about old refreshes, failed loads, and gaps.
 

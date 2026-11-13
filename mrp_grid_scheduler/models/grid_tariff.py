@@ -1,7 +1,10 @@
 import json
 import math
+import time
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, timezone
+from email.utils import parsedate_to_datetime
+from hashlib import sha256
 import pytz
 import requests
 
@@ -177,31 +180,64 @@ class GridTariffSource(models.Model):
             'source_id': source.id, 'provider_type': 'energy_charts', 'started_at': now,
             'next_allowed_at': now + timedelta(seconds=30), 'state': 'failed',
         } for source in self])
+        started = time.monotonic()
+        metadata = {}
+        rate_limit_delay = None
+        parsed = None
         try:
             with requests.get(
                 ENERGY_CHARTS_URL, params={'bzn': market}, stream=True,
                 allow_redirects=False, timeout=(4, 12),
                 headers={'User-Agent': 'GridSync-MRP/0.1'},
             ) as response:
+                metadata['http_status'] = response.status_code
                 if response.status_code == 429:
-                    retry = response.headers.get('Retry-After', '')
-                    seconds = min(max(int(retry), 30), 3600) if retry.isdigit() else 60
-                    logs.write({'next_allowed_at': now + timedelta(seconds=seconds), 'message': 'Rate limit reached.'})
-                    return _('The data provider asked GridSync to wait before trying again.'), 'warning'
-                if response.status_code != 200:
-                    raise PriceDataError('The data provider returned an unsuccessful response.')
-                body = bytearray()
-                for chunk in response.iter_content(chunk_size=65536):
-                    body.extend(chunk)
-                    if len(body) > MAX_RESPONSE_BYTES:
-                        raise PriceDataError('The data response is too large.')
-                parsed = parse_prices(json.loads(body), market)
+                    rate_limit_delay = self._retry_after_seconds(response.headers.get('Retry-After', ''), now)
+                elif response.status_code == 200:
+                    body = bytearray()
+                    for chunk in response.iter_content(chunk_size=65536):
+                        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+                            raise PriceDataError('The data response is too large.')
+                        body.extend(chunk)
+                    metadata['payload_hash'] = sha256(body).hexdigest()
+                    parsed = parse_prices(json.loads(body), market)
         except (requests.RequestException, ValueError, UnicodeError, PriceDataError):
-            logs.write({'message': 'The price data could not be fetched or validated.'})
+            pass
+
+        metadata['duration_ms'] = round((time.monotonic() - started) * 1000)
+        if rate_limit_delay is not None:
+            logs.write(dict(metadata, next_allowed_at=now + timedelta(seconds=rate_limit_delay),
+                            message='Rate limit reached.'))
+            return _('The data provider asked GridSync to wait before trying again.'), 'warning'
+        if parsed is None:
+            previous = logs.search([
+                ('provider_type', '=', 'energy_charts'), ('source_id.energy_charts_market', '=', market),
+                ('id', 'not in', logs.ids), ('http_status', '!=', 429),
+            ], limit=1)
+            failures = min(previous.failure_streak + 1, 5)
+            delay = AUTO_SYNC_INTERVAL * 2 ** (failures - 1)
+            logs.write(dict(metadata, failure_streak=failures, next_allowed_at=now + delay,
+                            message='The price data could not be fetched or validated.'))
             return _('Price sync failed. The previous data is still available.'), 'danger'
+        logs.write(metadata)
         for source, log in zip(self, logs, strict=True):
             source._save_energy_charts_prices(parsed, log)
         return _('Price sync completed.'), 'success'
+
+    @api.model
+    def _retry_after_seconds(self, value, now):
+        value = value.strip()
+        if value.isascii() and value.isdigit():
+            digits = value.lstrip('0')
+            return 3600 if len(digits) > 4 else max(30, min(int(digits or '0'), 3600))
+        try:
+            deadline = parsedate_to_datetime(value)
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            seconds = (deadline - now.replace(tzinfo=timezone.utc)).total_seconds()
+            return max(30, min(math.ceil(seconds), 3600))
+        except (TypeError, ValueError, OverflowError):
+            return 60
 
     def _save_energy_charts_prices(self, parsed, log):
         now = log.started_at
@@ -320,3 +356,7 @@ class GridTariffSync(models.Model):
     updated = fields.Integer(readonly=True)
     missing = fields.Integer(readonly=True)
     message = fields.Char(readonly=True)
+    http_status = fields.Integer('HTTP status', readonly=True)
+    duration_ms = fields.Integer('Fetch time (ms)', readonly=True)
+    payload_hash = fields.Char('Payload SHA-256', readonly=True)
+    failure_streak = fields.Integer(readonly=True)
