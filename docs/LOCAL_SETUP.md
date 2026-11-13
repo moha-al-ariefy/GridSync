@@ -29,7 +29,7 @@ On a new test database, install with `-i mrp_grid_scheduler --without-demo --tes
 
 ## First steps in GridSync
 
-Give a manufacturing user the GridSync Planner role, or use the GridSync Manager role for site administration. Open GridSync, create a site and select its work centers. Planner access is limited to allowed companies; only a manager can delete a site.
+Give a manufacturing user the GridSync Planner role, or use the GridSync Manager role for site administration. Open GridSync, create a site and select its work centers. Planner access is limited to allowed companies; only a manager can delete a site. The site shows the tariffs assigned to those work centers. Use **Schedule proposals** or **Energy results** on the site to see records for its current work centers.
 
 Under Tariffs, a GridSync Manager can choose **Energy-Charts day-ahead**, select a **Market**, save, and select **Sync prices**. Germany and Luxembourg, Austria, Belgium, France, and the Netherlands use the same connector. Create a separate source for each market. Use these wholesale prices for site costs only if the site contract follows that market. The source displays its license, attribution, sync time and 15-minute EUR/MWh intervals. A repeat sync updates existing intervals rather than duplicating them. Missing prices are not filled with zero. The sync uses the public Energy-Charts API and does not require an API key.
 

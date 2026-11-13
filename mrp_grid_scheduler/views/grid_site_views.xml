@@ -17,6 +17,12 @@
         <field name="arch" type="xml">
             <form string="Site" js_class="grid_record_form">
                 <sheet>
+                    <div class="oe_button_box" name="button_box" invisible="not id">
+                        <button name="action_open_schedules" type="object" string="Schedule proposals"
+                                class="oe_stat_button" icon="fa-calendar"/>
+                        <button name="action_open_energy_results" type="object" string="Energy results"
+                                class="oe_stat_button" icon="fa-bolt"/>
+                    </div>
                     <div class="oe_title">
                         <label for="name"/>
                         <h1><field name="name" placeholder="e.g. Main factory"/></h1>
@@ -25,8 +31,9 @@
                         <field name="company_id" groups="base.group_multi_company"/>
                         <field name="active" invisible="1"/>
                         <field name="workcenter_ids" widget="many2many_tags" domain="['|', ('company_id', '=', False), ('company_id', '=', company_id)]"/>
+                        <field name="tariff_ids" widget="many2many_tags" readonly="1"/>
                     </group>
-                    <p class="text-muted">Add the work centers at this site.</p>
+                    <p class="text-muted">The tariffs come from the work centers assigned here.</p>
                 </sheet>
             </form>
         </field>

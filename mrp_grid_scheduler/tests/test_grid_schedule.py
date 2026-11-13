@@ -541,6 +541,27 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(result.emissions_reference, 'Test electricity factor')
         self.assertEqual(Decimal(result.evidence['emissions_factor_g_co2e_per_kwh']), 400)
 
+    def test_site_links_to_its_tariffs_proposals_and_energy_results(self):
+        line, wizard = self.make_meter_import()
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        sites = self.env['grid.site'].with_user(self.planner)
+        site = sites.create({'name': 'Press site', 'workcenter_ids': [Command.link(self.center.id)]})
+        other = sites.create({'name': 'Bench site', 'workcenter_ids': [Command.link(self.other_center.id)]})
+        self.assertEqual(site.tariff_ids, self.tariff.with_user(self.planner))
+        self.assertFalse(other.tariff_ids)
+        for method, record in (
+            ('action_open_schedules', line.run_id),
+            ('action_open_energy_results', line.energy_result_ids),
+        ):
+            action = getattr(site, method)()
+            self.assertEqual(action['res_model'], record._name)
+            model = self.env[action['res_model']].with_user(self.planner)
+            self.assertIn(record.id, model.search(action['domain']).ids)
+            self.assertNotIn(record.id, model.search(getattr(other, method)()['domain']).ids)
+            with self.assertRaises(AccessError):
+                getattr(site.with_user(self.outsider), method)()
+
     def test_meter_result_prices_actual_and_original_times(self):
         line, wizard = self.make_meter_import()
         wizard.write({'compare_bill': True, 'bill_reference': 'Test charge line', 'bill_start': at(13),

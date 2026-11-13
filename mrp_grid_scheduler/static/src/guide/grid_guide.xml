@@ -18,7 +18,7 @@
                     </li>
                     <li class="mb-2">
                         <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openWorkCenters">Check the work center</button>.
-                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle. Set a shift penalty per hour if moving a booked start has a cost.
+                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle. Assign the work center under Sites to find its proposals and meter results later. Set a shift penalty per hour if moving a booked start has a cost.
                     </li>
                     <li class="mb-2">
                         <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openSchedule">Compute and review a proposal</button>.
