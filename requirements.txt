@@ -1,0 +1,4 @@
+# Install Odoo 19 and its requirements first.
+pytz
+requests
+psycopg2

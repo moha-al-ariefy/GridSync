@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
-                <app name="mrp_grid_scheduler" string="GridSync" groups="base.group_system">
+                <app name="mrp_grid_scheduler" string="GridSync" logo="/mrp_grid_scheduler/static/description/icon-purple.png" groups="base.group_system">
                     <block title="Electricity prices">
                         <setting id="grid_tariff_auto_sync" company_dependent="1"
                                  help="Check Energy-Charts prices every five minutes and when Overview or Tariffs opens. GridSync managers can also sync manually.">

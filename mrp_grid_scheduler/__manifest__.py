@@ -2,6 +2,7 @@
     'name': 'GridSync MRP',
     'version': '19.0.1.0.0',
     'summary': 'Plan manufacturing around energy prices',
+    'icon': '/mrp_grid_scheduler/static/description/icon-purple.png',
     'category': 'Manufacturing',
     'depends': ['mrp'],
     'data': [
@@ -14,11 +15,13 @@
         'views/res_config_settings_views.xml',
         'views/grid_schedule_views.xml',
         'views/grid_energy_views.xml',
+        'views/mrp_form_views.xml',
         'data/grid_tariff_cron.xml',
     ],
     'assets': {
         'web.assets_backend': [
             'mrp_grid_scheduler/static/src/scss/grid_sync.scss',
+            'mrp_grid_scheduler/static/src/forms/form_actions.xml',
             'mrp_grid_scheduler/static/src/guide/grid_guide.js',
             'mrp_grid_scheduler/static/src/guide/grid_guide.xml',
             'mrp_grid_scheduler/static/src/tariffs/tariff_views.js',

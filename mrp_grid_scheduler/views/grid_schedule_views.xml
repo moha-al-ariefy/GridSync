@@ -21,7 +21,7 @@
         <field name="name">grid.schedule.run.form</field>
         <field name="model">grid.schedule.run</field>
         <field name="arch" type="xml">
-            <form string="Schedule proposal">
+            <form string="Schedule proposal" js_class="grid_record_form">
                 <header>
                     <button name="action_compute" type="object" string="Compute proposal" class="btn-primary" invisible="state != 'draft' or not id"/>
                     <button name="action_review_apply" type="object" string="Review and apply" class="btn-primary"

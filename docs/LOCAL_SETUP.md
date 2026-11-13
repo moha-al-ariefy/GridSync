@@ -13,6 +13,8 @@ This setup is for the Odoo 19 workshop installation on Windows. Keep it separate
 
 Run the installed Odoo Python and `odoo-bin` from the workshop server directory. Pass the existing Odoo configuration with `-c`, the workshop add-on directories plus this repository with `--addons-path`, and the development database with `-d`. Install the module with `-i mrp_grid_scheduler --without-demo=all --stop-after-init --no-http`.
 
+The workshop installation normally includes the Python packages listed in [requirements.txt](../requirements.txt). For a separate installation, use the same Python environment that runs Odoo and keep its version constraints.
+
 The add-on path is a comma-separated list. Include all required Odoo and workshop directories when overriding it; otherwise installed modules may not be found. The exact paths depend on the installation.
 
 To open the add-on without changing the workshop service, run a separate local Odoo process with the same configuration and add-on paths, `--http-interface=127.0.0.1`, a free `--http-port`, a database filter for the development database and `--no-database-list`. Stop that process when finished. Do not run tests against a shared or production database.
@@ -83,5 +85,29 @@ The bill comparison is optional. Enter the energy-charge amount only when the bi
 
 1. Start on a copy of the site's Odoo database. Pick one work center with a dedicated meter and check its operating power, calendar, and tariff against the site's current rate schedule. Confirm that prices cover both the original and proposed times.
 2. Ask the planner to review a real proposal against the production schedule. On the copy, apply it, check the dates in Manufacturing, and revert it before the work starts. Check that the original bookings return.
-3. Use a finished operation from an applied schedule to check the meter import. Compare the imported kWh with the meter export and calculate the energy charge independently using the same tariff intervals. Check the original-time estimate separately. Use a bill charge only when it covers the same meter and period.
-4. Record the tariff revision, period, work center, planner, and any differences. Keep the supporting records in the site's own system. Review the differences and get the site's sign-off before applying changes in production.
+3. Check the first site's meter export against a finished operation's Odoo run log. The intervals must cover the logged run times exactly. If the export only has fixed 15-minute buckets and the job starts or ends mid-bucket, check whether the site can export matching readings. Keep the meter check open until the site can supply them.
+4. Compare the imported kWh with the meter export. Independently price the readings using the verified site tariff and check the original-time estimate separately. Use a bill charge only when it covers the same meter and period. Have the planner sign off on the tariff, meter result, and Apply and Revert rehearsal. Record the tariff revision, dates, planner, and any differences in the site's own system.
+5. On the target installation, restore a backup to an isolated copy and confirm that the schedules and meter results open. Repeat Apply and Revert at the site's normal workload and note the timings and any retry messages. Trigger a controlled failure on the copy and confirm that the person responsible receives it through the site's monitoring setup. The local rehearsal covered 120 test work orders. Use the target site's workload for sign-off.
+
+## Test the full workflow in Odoo
+
+Use **New** from a list. **Save** on a new record takes you back to the list, where you can reopen it to generate prices, compute a proposal, or confirm a manufacturing order. When editing an existing record, **Save** keeps you on that record. Save the bill of materials before adding its first operation. The empty Operations tab has an Add Operation button.
+
+Use an isolated Odoo 19 database with GridSync installed or upgraded and work orders enabled in Manufacturing. Sign in as a GridSync Manager with Manufacturing Administrator access. The rates and readings below are test inputs. Use one work center and keep other bookings out of its test window.
+
+1. In **GridSync > Tariffs**, create a **Time-of-use rules** tariff in AED. Pick a date and a future one-hour window aligned to 15 minutes, within the work center's working hours. Use the same timezone when entering the tariff, booking and proposal. Set the tariff validity to that day and enter `Local walkthrough test rates` as its source. Add an **Every day** rule for the first 15 minutes at **0.270 AED/kWh** and another for the remaining 45 minutes at **0.366 AED/kWh**. Generate intervals for that day. Expect four prices in the test window. Hours outside that window have no prices.
+2. In **GridSync > Work centers**, open **Electricity**, enter **40 kW** and `Local test input` as its reference, select the tariff and turn on **Allow schedule suggestions**. In **GridSync > Sites**, create a test site and link the work center.
+3. In **Manufacturing > Products > Bills of Materials**, create a manufacturing BoM for a test product, save it, and reopen it. Under **Operations**, click **Add Operation**. Select the test work center, set a manual duration of 15 minutes, and save. Reopen the BoM to check the operation. Create and confirm a manufacturing order for one unit using that BoM. In **Work Orders**, open the operation and set its start and end to the second 15-minute slot. Set any manufacturing deadline at or after the end of the window. Write down the original start and end.
+4. In **GridSync > Schedule**, select the work center and that one-hour window, then click **Compute proposal**. Expect the first slot to be proposed, with **AED 3.66** at the current time, **AED 2.70** at the proposed time, and **AED 0.96** in estimated savings. Open **Review and apply** and cancel once to confirm that the booking stays put. Reopen it, confirm, and check that Manufacturing shows the new dates.
+5. Before either booking starts, use **Review revert** and confirm. Check that Manufacturing shows the exact original dates. Choose **New run with these settings**, compute a new proposal, then apply it. Leave this second proposal applied for the meter check.
+6. Once the cheap slot begins, start the work order in Manufacturing. For this test, run it for a minute or two and finish it well before the slot ends. Open the work order's **Time Tracking** tab and use its actual productive start and end, including seconds. Odoo can display dates without seconds. If you can't see the exact values, a Manufacturing Administrator can set the two timestamps explicitly to whole minutes on the test log, within the cheap slot and after Apply. Use those saved test timestamps. Keep real production logs as recorded. The short test run still fits when moved back to the original 15-minute booking. The CSV below illustrates a run from 14:01:12 to 14:03:20 Dubai time. Replace both timestamps with your log times and use 10 kWh as the test input:
+
+   ```csv
+   start,end,kwh
+   2026-11-13T14:01:12+04:00,2026-11-13T14:03:20+04:00,10
+   ```
+
+7. Open the applied proposal and click **Import readings** beside the completed operation. Upload the test CSV, enter `Test press meter` as the meter reference, and confirm the dedicated-meter checkbox. For the optional bill check, enter a test reference, the same start and end, and **AED 2.70** as the energy charge. Click **Import and calculate**.
+8. Open **Energy result** from the proposal and from the work order. Expect **10 kWh**, an **AED 2.70** calculated charge, an **AED 3.66** original-time estimate, and **AED 0.96** estimated savings. If you entered the matching bill charge, expect a **0.00** difference. A completed operation should refuse Revert and keep its existing dates.
+
+On a separate test run, try changing a work-order date after Compute and confirm that Apply refuses the stale proposal. Before importing valid readings, try a CSV with a missing or repeated interval and confirm that GridSync saves no result.

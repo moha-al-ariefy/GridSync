@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="mrp_grid_scheduler.FormView" t-inherit="web.FormView" t-inherit-mode="primary">
+        <xpath expr="//t[@t-set-slot='control-panel-create-button']/button" position="replace">
+            <button t-if="!model.root.isNew and listViewType" type="button" class="btn btn-secondary"
+                    t-on-click.stop="goToList">Back to list</button>
+        </xpath>
+        <xpath expr="//FormStatusIndicator" position="replace">
+            <GridFormStatus model="model" discard.bind="discard" save.bind="saveButtonClicked"/>
+        </xpath>
+    </t>
+    <t t-name="mrp_grid_scheduler.FormStatus" t-inherit="web.FormStatusIndicator" t-inherit-mode="primary">
+        <xpath expr="//button[@t-ref='save']" position="attributes">
+            <attribute name="class">o_form_button_save btn btn-primary me-2</attribute>
+            <attribute name="data-tooltip">Save</attribute>
+            <attribute name="aria-label">Save</attribute>
+        </xpath>
+        <xpath expr="//button[@t-ref='save']/i" position="replace"><span>Save</span></xpath>
+        <xpath expr="//button[contains(@class, 'o_form_button_cancel')]" position="attributes">
+            <attribute name="class">o_form_button_cancel btn btn-secondary</attribute>
+            <attribute name="data-tooltip">Discard unsaved changes</attribute>
+            <attribute name="aria-label">Discard unsaved changes</attribute>
+        </xpath>
+        <xpath expr="//button[contains(@class, 'o_form_button_cancel')]/i" position="replace"><span>Discard</span></xpath>
+    </t>
+</templates>

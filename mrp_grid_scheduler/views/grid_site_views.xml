@@ -15,7 +15,7 @@
         <field name="name">grid.site.form</field>
         <field name="model">grid.site</field>
         <field name="arch" type="xml">
-            <form string="Site">
+            <form string="Site" js_class="grid_record_form">
                 <sheet>
                     <div class="oe_title">
                         <label for="name"/>
@@ -44,7 +44,7 @@
         <field name="name">Overview</field>
         <field name="tag">mrp_grid_scheduler.guide</field>
     </record>
-    <menuitem id="menu_grid_root" name="GridSync" groups="group_grid_planner" web_icon="mrp_grid_scheduler,static/description/icon.png" sequence="140"/>
+    <menuitem id="menu_grid_root" name="GridSync" groups="group_grid_planner" web_icon="mrp_grid_scheduler,static/description/icon-purple.png" sequence="140"/>
     <menuitem id="menu_grid_guide" name="Overview" parent="menu_grid_root" action="action_grid_guide" groups="group_grid_planner" sequence="1"/>
     <menuitem id="menu_grid_sites" name="Sites" parent="menu_grid_root" action="action_grid_site" groups="group_grid_planner" sequence="10"/>
 </odoo>

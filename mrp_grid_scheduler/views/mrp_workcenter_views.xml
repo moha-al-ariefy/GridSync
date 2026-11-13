@@ -5,6 +5,9 @@
         <field name="model">mrp.workcenter</field>
         <field name="inherit_id" ref="mrp.mrp_workcenter_view"/>
         <field name="arch" type="xml">
+            <xpath expr="/form" position="attributes">
+                <attribute name="js_class">grid_record_form</attribute>
+            </xpath>
             <xpath expr="//notebook/page[@name='general_info']" position="after">
                 <page string="Electricity" name="grid_energy" groups="mrp_grid_scheduler.group_grid_planner">
                     <field name="grid_energy_can_edit" invisible="1"/>
