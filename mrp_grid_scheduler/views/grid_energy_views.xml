@@ -228,6 +228,8 @@
                         <field name="bill_checked_by"/>
                         <field name="bill_checked_at"/>
                     </group>
+                    <button name="action_download_intervals" type="object" string="Download interval breakdown"
+                            class="btn-secondary mb-2"/>
                     <p class="text-muted">The comparison prices the same metered workload at the original times. When a reading spans two prices, its kWh are split by time.</p>
                 </sheet>
                 <footer>

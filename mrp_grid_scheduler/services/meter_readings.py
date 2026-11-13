@@ -64,9 +64,7 @@ def merge_times(windows):
     return merged
 
 
-def price_readings(readings, prices, offset=timedelta(0)):
-    cost = Decimal(0)
-    used = set()
+def priced_segments(readings, prices, offset=timedelta(0)):
     for start, end, kwh in readings:
         start, end = start + offset, end + offset
         slot = floor_slot(start)
@@ -75,7 +73,15 @@ def price_readings(readings, prices, offset=timedelta(0)):
             if slot not in prices:
                 raise MeterInputError(f'An electricity price is missing at {slot.isoformat()} UTC.')
             overlap = Decimal((min(end, slot + STEP) - max(start, slot)).total_seconds())
-            cost += kwh * overlap / seconds * prices[slot] / 1000
-            used.add(slot)
+            energy = kwh * overlap / seconds
+            yield slot, energy, energy * prices[slot] / 1000
             slot += STEP
+
+
+def price_readings(readings, prices, offset=timedelta(0)):
+    cost = Decimal(0)
+    used = set()
+    for slot, _kwh, charge in priced_segments(readings, prices, offset):
+        cost += charge
+        used.add(slot)
     return cost, used

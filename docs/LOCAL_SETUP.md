@@ -100,6 +100,8 @@ The bill comparison is optional. Enter the energy-charge amount only when the bi
 
 If the bill arrives later, open the saved **Energy result** as a GridSync manager and choose **Compare energy bill**. Enter the energy-only amount and dates for the same meter and exact continuous period. The result keeps the original calculated charge and records who saved the comparison and when. If you have Odoo Billing access, select **Use a posted vendor bill line** to use its untaxed subtotal. Choose the energy-only line for the same meter. Check the displayed vendor, invoice date, and untaxed subtotal, then enter the exact metered period before saving. GridSync saves the comparison without posting or editing a bill.
 
+Open a saved energy result and select **Download interval breakdown** to check the allocated kWh, saved rate and unrounded charge for each 15-minute interval. The CSV includes the original-booking estimate when available. Sum the charges for each basis, then round to the result currency. Any emissions column values use the saved factor and are estimates.
+
 ## Receive readings from a meter gateway
 
 1. In Odoo, create a dedicated internal integration user for the site company. Give it **GridSync / Meter gateway** and assign its work centers on the **GridSync meter gateway** tab. Give the gateway an expiring API key and keep the key in its secret store. Use HTTPS on the target Odoo installation.

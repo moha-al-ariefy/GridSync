@@ -1,4 +1,6 @@
 import base64
+import csv
+import io
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -643,6 +645,19 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(result.estimated_emissions_kg, 4)
         self.assertEqual(result.emissions_reference, 'Test electricity factor')
         self.assertEqual(Decimal(result.evidence['emissions_factor_g_co2e_per_kwh']), 400)
+        result = result.with_user(self.planner)
+        payload = result.read(['interval_csv'])[0]['interval_csv']
+        rows = list(csv.DictReader(io.StringIO(base64.b64decode(payload).decode())))
+        metered, original = rows[:2], rows[2:]
+        self.assertEqual([row['basis'] for row in rows], ['metered'] * 2 + ['original_booking_estimate'] * 2)
+        self.assertEqual([row['interval_start_utc'] for row in metered], ['2030-01-07T13:00:00Z', '2030-01-07T13:15:00Z'])
+        self.assertEqual([row['interval_start_utc'] for row in original], ['2030-01-07T08:00:00Z', '2030-01-07T08:15:00Z'])
+        self.assertEqual(sum(Decimal(row['unrounded_energy_charge']) for row in metered), Decimal('0.10'))
+        self.assertEqual(sum(Decimal(row['unrounded_energy_charge']) for row in original), Decimal('1.00'))
+        self.assertEqual([Decimal(row['estimated_kg_co2e']) for row in metered], [Decimal('2.4'), Decimal('1.6')])
+        self.assertTrue(all(not row['estimated_kg_co2e'] for row in original))
+        with self.assertRaises(AccessError):
+            result.with_user(self.outsider).action_download_intervals()
 
     def test_site_links_to_its_tariffs_proposals_and_energy_results(self):
         line, wizard = self.make_meter_import()

@@ -1,6 +1,9 @@
 import base64
 import binascii
+import csv
+import io
 import math
+from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -10,7 +13,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, ConcurrencyError, UserError
 
 from ..services.local_tariffs import MAX_CSV_BYTES
-from ..services.meter_readings import MeterInputError, merge_times, parse_meter_csv, price_readings
+from ..services.meter_readings import MeterInputError, merge_times, parse_meter_csv, price_readings, priced_segments
 from ..services.scheduler import MAX_HORIZON, floor_slot
 from .mrp_workcenter import GRID_MANAGER, GRID_PLANNER
 
@@ -57,6 +60,8 @@ class GridEnergyResult(models.Model):
     estimated_emissions_kg = fields.Float('Estimated electricity emissions (kg CO₂e)', digits=(20, 6), readonly=True)
     emissions_reference = fields.Char('Electricity factor source', readonly=True)
     gateway_batch_reference = fields.Char(compute='_compute_gateway_batch_reference', string='Gateway batch')
+
+    interval_csv = fields.Binary(compute='_compute_interval_csv', attachment=False)
 
     _one_result_per_operation = models.Constraint('UNIQUE(workorder_id)', 'This operation already has a meter result.')
 
@@ -105,6 +110,45 @@ class GridEnergyResult(models.Model):
             'res_model': 'grid.energy.bill.check', 'view_mode': 'form', 'target': 'new',
             'context': {'default_result_id': self.id},
         }
+
+    def action_download_intervals(self):
+        self.ensure_one()
+        self.check_access('read')
+        return {
+            'type': 'ir.actions.act_url', 'target': 'download',
+            'url': f'/web/content/grid.energy.result/{self.id}/interval_csv/gridsync-intervals.csv?download=true&nocache=true',
+        }
+
+    @api.depends('evidence', 'currency_id.name', 'has_baseline', 'line_id.current_start')
+    def _compute_interval_csv(self):
+        for result in self:
+            evidence = result.evidence or {}
+            readings = [(datetime.fromisoformat(start), datetime.fromisoformat(end), Decimal(kwh))
+                        for start, end, kwh in evidence.get('readings', [])]
+            if not readings or not evidence.get('actual_prices'):
+                result.interval_csv = False
+                continue
+
+            output = io.StringIO(newline='')
+            writer = csv.writer(output)
+            writer.writerow(['basis', 'interval_start_utc', 'allocated_kwh', 'price_per_mwh',
+                             'unrounded_energy_charge', 'currency', 'estimated_kg_co2e'])
+            factor = evidence.get('emissions_factor_g_co2e_per_kwh')
+            sources = [('metered', evidence['actual_prices'], timedelta(0))]
+            if result.has_baseline:
+                offset = result.line_id.current_start - readings[0][0]
+                sources.append(('original_booking_estimate', evidence['baseline_prices'], offset))
+            for basis, saved_prices, offset in sources:
+                prices = {datetime.fromisoformat(start): Decimal(price) for start, price in saved_prices.items()}
+                energy, charges = defaultdict(Decimal), defaultdict(Decimal)
+                for slot, kwh, charge in priced_segments(readings, prices, offset):
+                    energy[slot] += kwh
+                    charges[slot] += charge
+                for slot in sorted(energy):
+                    emissions = format(energy[slot] * Decimal(factor) / 1000, 'f') if factor and basis == 'metered' else ''
+                    writer.writerow([basis, f'{slot.isoformat()}Z', format(energy[slot], 'f'),
+                                     format(prices[slot], 'f'), format(charges[slot], 'f'), result.currency_id.name, emissions])
+            result.interval_csv = base64.b64encode(output.getvalue().encode('utf-8'))
 
     def _check_bill_access(self):
         self.ensure_one()
