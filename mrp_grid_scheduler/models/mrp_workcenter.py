@@ -7,7 +7,7 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
 GRID_MANAGER = 'mrp_grid_scheduler.group_grid_manager'
 ENERGY_FIELDS = {'grid_power_kw', 'grid_power_reference', 'grid_tariff_source_id', 'grid_allow_shift',
-                 'grid_use_gb_carbon', 'grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference'}
+                 'grid_shift_penalty', 'grid_use_gb_carbon', 'grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference'}
 
 
 class MrpWorkcenter(models.Model):
@@ -28,6 +28,10 @@ class MrpWorkcenter(models.Model):
     grid_allow_shift = fields.Boolean(
         string='Allow schedule suggestions', copy=False, groups=GRID_PLANNER,
         help='Include this work center in GridSync scheduling suggestions.',
+    )
+    grid_shift_penalty = fields.Float(
+        'Shift penalty per hour (tariff currency)', digits=(16, 4), groups=GRID_PLANNER, copy=False,
+        help='Estimated disruption cost for each hour a booked start moves.',
     )
     grid_use_gb_carbon = fields.Boolean(
         'Use GB carbon intensity', groups=GRID_PLANNER, copy=False,
@@ -69,6 +73,12 @@ class MrpWorkcenter(models.Model):
         tariffs.check_access('read')
         # A tariff move and a new link must update the same row in one transaction.
         tariffs.write({'write_date': fields.Datetime.now()})
+
+    @api.constrains('grid_shift_penalty')
+    def _check_grid_shift_penalty(self):
+        for center in self.sudo():
+            if not 0 <= center.grid_shift_penalty <= 1_000_000:
+                raise ValidationError(_('Enter a shift penalty between zero and 1,000,000.'))
 
     @api.constrains('grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference')
     def _check_grid_carbon_factor(self):

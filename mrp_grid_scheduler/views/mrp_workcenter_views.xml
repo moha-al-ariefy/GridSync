@@ -20,6 +20,7 @@
                             <field name="grid_tariff_source_id" readonly="not grid_energy_can_edit"
                                    domain="[('company_id', '=', company_id), ('active', '=', True)]"
                                    options="{'no_create': True}"/>
+                            <field name="grid_shift_penalty" readonly="not grid_energy_can_edit"/>
                             <field name="grid_allow_shift" readonly="not grid_energy_can_edit"/>
                         </group>
                     </group>

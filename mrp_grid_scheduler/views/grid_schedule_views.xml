@@ -45,7 +45,7 @@
                         Review the dates and estimates before applying this proposal.
                     </p>
                     <p class="alert alert-info" role="status" invisible="state != 'proposed' or not has_current_cost or moved_count or objective != 'cost'">
-                        No lower-cost schedule was found. The current bookings stay in place.
+                        No better schedule was found for the selected objective. The current bookings stay in place.
                     </p>
                     <p class="alert alert-warning" role="alert" invisible="state != 'proposed' or complete">
                         Some operations could not be scheduled. Any existing bookings for them stay in place.
@@ -78,6 +78,7 @@
                         <group string="Estimated energy cost" invisible="objective == 'gb_carbon'">
                             <field name="currency_id" options="{'no_open': True}"/>
                             <field name="proposed_cost"/>
+                            <field name="shift_penalty" invisible="not shift_penalty"/>
                             <field name="current_cost" invisible="not has_current_cost"/>
                             <field name="saving" invisible="not has_current_cost"/>
                             <field name="lower_bound" invisible="not has_lower_bound"/>
@@ -133,6 +134,7 @@
                                     <field name="energy_kwh" optional="show"/>
                                     <field name="current_cost" column_invisible="parent.objective == 'gb_carbon'" invisible="not has_current_cost"/>
                                     <field name="proposed_cost" column_invisible="parent.objective == 'gb_carbon'" invisible="status == 'unscheduled'"/>
+                                    <field name="shift_penalty" column_invisible="parent.objective == 'gb_carbon'" optional="hide"/>
                                     <field name="current_carbon_kg" column_invisible="parent.objective == 'cost'" invisible="not has_current_cost"/>
                                     <field name="proposed_carbon_kg" column_invisible="parent.objective == 'cost'" invisible="status == 'unscheduled'"/>
                                     <field name="status" widget="badge" decoration-info="status == 'moved'"
@@ -180,6 +182,7 @@
                 <field name="state" type="row"/>
                 <field name="computed_at" type="col" interval="month"/>
                 <field name="proposed_cost" invisible="1"/>
+                <field name="shift_penalty" invisible="1"/>
                 <field name="current_cost" invisible="1"/>
                 <field name="lower_bound" invisible="1"/>
                 <field name="proposed_carbon_kg" invisible="1"/>
@@ -196,6 +199,7 @@
                 <field name="computed_at" interval="month"/>
                 <field name="state"/>
                 <field name="proposed_cost" invisible="1"/>
+                <field name="shift_penalty" invisible="1"/>
                 <field name="current_cost" invisible="1"/>
                 <field name="lower_bound" invisible="1"/>
                 <field name="proposed_carbon_kg" invisible="1"/>

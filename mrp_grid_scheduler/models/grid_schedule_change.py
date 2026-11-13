@@ -132,7 +132,7 @@ class GridScheduleRun(models.Model):
     def _validate_schedule_dates(self, workorders, dates, start, end, require_prices):
         centers = self._check_workcenters(require_tariff=require_prices)
         inputs, _, sources, _components = self._workcenter_inputs(centers, workorders, start, end, include_prices=require_prices)
-        jobs = self._job_inputs(workorders, start)
+        jobs = self._job_inputs(workorders, start, include_penalties=require_prices)
         try:
             check_placements(start, end, inputs, jobs, dates, require_prices)
         except ScheduleInputError as exc:
@@ -144,6 +144,9 @@ class GridScheduleRun(models.Model):
         proposed = {line.workorder_id.id: (line.proposed_start, line.proposed_end) for line in lines}
         self._check_future_dates(moved, proposed)
         inputs, jobs, sources = self._validate_schedule_dates(workorders, proposed, start, end, True)
+        saved_penalties = {job['key']: job.get('shift_penalty_per_hour', 0) for job in self.snapshot['inputs']['jobs']}
+        if any(job.shift_penalty_per_hour != saved_penalties.get(job.key, 0) for job in jobs):
+            raise UserError(_('Shift penalties or their exchange rates changed. Compute a new proposal.'))
         source_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'), source.get('carbon_basis'), source.get('carbon_factors'))
                        for source in sources]
         frozen_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'), source.get('carbon_basis'), source.get('carbon_factors'))

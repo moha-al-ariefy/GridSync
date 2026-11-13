@@ -125,6 +125,30 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual({str(key): item.proposed.start.isoformat() for key, item in replay.jobs.items()},
                          {key: item['start'] for key, item in run.snapshot['result'].items()})
 
+    def test_shift_penalty_is_separate_and_rechecked_before_apply(self):
+        _production, (order,) = self.make_production([('Press', self.center, 60)])
+        order.write({'date_start': at(8), 'date_finished': at(9)})
+        self.center.with_user(self.manager).grid_shift_penalty = 0.2
+
+        run = self.make_run()
+        run.action_compute()
+        self.assertEqual(run.line_ids.proposed_start, at(13))
+        self.assertAlmostEqual(run.proposed_cost, 0.2)
+        self.assertAlmostEqual(run.shift_penalty, 1)
+        self.assertAlmostEqual(run.saving, 1.8)
+        self.assertFalse(run.has_lower_bound)
+        self.assertEqual(run.snapshot['result'][str(order.id)]['objective_score'], 1.2)
+
+        self.center.with_user(self.manager).grid_shift_penalty = 0.5
+        with self.assertRaisesRegex(UserError, 'Shift penalties'):
+            run._change_schedule('apply')
+        self.assertEqual(order.date_start, at(8))
+
+        run = self.make_run()
+        run.action_compute()
+        self.assertEqual(run.line_ids.proposed_start, at(8))
+        self.assertEqual(run.shift_penalty, 0)
+
     def test_gb_carbon_proposal_uses_intensity_and_rechecks_the_source(self):
         _production, (order,) = self.make_production([('Press', self.center, 30)])
         order.write({'date_start': at(8), 'date_finished': at(8, 30)})

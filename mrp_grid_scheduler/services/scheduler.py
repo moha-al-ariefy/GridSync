@@ -54,6 +54,7 @@ class JobInput:
     current_start: datetime = None
     current_end: datetime = None
     blocked_reason: str = None
+    shift_penalty_per_hour: float = 0
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class Placement:
     end: datetime
     energy_kwh: float
     cost: float
+    shift_penalty: float = 0
 
 
 @dataclass(frozen=True)
@@ -200,6 +202,13 @@ def _duration(job):
     return max(timedelta(seconds=round(job.minutes * 60)), MIN_DURATION)
 
 
+def _placement(job, start, end, priced):
+    energy, cost = priced
+    hours = abs((start - job.current_start).total_seconds()) / 3600 if job.current_start else 0
+    penalty = hours * job.shift_penalty_per_hour
+    return Placement(start, end, energy, cost + penalty, penalty)
+
+
 def _evaluate(center, job, duration, low, finish_by, busy):
     """Find the lowest-cost start. Returns (placement, reason, current start issue)."""
     seen = {'window': False, 'free': False}
@@ -223,10 +232,11 @@ def _evaluate(center, job, duration, low, finish_by, busy):
             continue
         if start == job.current_start:
             current_issue = None
-        key = (priced[1], start != job.current_start, start)
+        candidate = _placement(job, start, end, priced)
+        key = (candidate.cost, start != job.current_start, start)
         if best_key is None or key < best_key:
             best_key = key
-            best = Placement(start, end, priced[0], priced[1])
+            best = candidate
     if best:
         return best, None, current_issue
     reason = 'no_prices' if seen['free'] else 'conflict' if seen['window'] else 'no_window'
@@ -349,7 +359,7 @@ def _search_placements(order, jobs, centers, durations, finish_by, incumbent):
             price = center.price(segments)
             if price is None:
                 continue
-            placed[key] = Placement(start, end, *price)
+            placed[key] = _placement(job, start, end, price)
             bookings.append((start, end))
             finished = visit(index + 1)
             bookings.pop()
@@ -378,6 +388,8 @@ def schedule(horizon_start, horizon_end, workcenters, jobs):
             raise ScheduleInputError(f'Job {job.key} uses an unknown work center.')
         if any(key not in jobs or key == job.key for key in job.predecessors):
             raise ScheduleInputError(f'Job {job.key} depends on an operation outside this run.')
+        if not math.isfinite(job.shift_penalty_per_hour) or not 0 <= job.shift_penalty_per_hour <= 1_000_000:
+            raise ScheduleInputError(f'Operation {job.key} has an invalid shift penalty.')
         durations[job.key] = _duration(job)
 
     order, cyclic, successors = _topological(jobs)
@@ -533,7 +545,7 @@ def check_placements(start, end, workcenters, jobs, times, require_prices=True):
             priced = center.price(worked[1])
             if priced is None:
                 raise ScheduleInputError(f'Operation {job.key} is missing price intervals.')
-            placements[job.key] = Placement(low, high, *priced)
+            placements[job.key] = _placement(job, low, high, priced)
         for predecessor in job.predecessors:
             earlier = times.get(predecessor)
             if not earlier or earlier[1] > low:
@@ -566,6 +578,7 @@ def dump_inputs(horizon_start, horizon_end, workcenters, jobs):
             'release': _iso(job.release), 'due': _iso(job.due),
             'predecessors': sorted(job.predecessors), 'current_start': _iso(job.current_start),
             'current_end': _iso(job.current_end), 'blocked_reason': job.blocked_reason,
+            **({'shift_penalty_per_hour': job.shift_penalty_per_hour} if job.shift_penalty_per_hour else {}),
         } for job in sorted(jobs, key=lambda job: job.key)],
     }
 
@@ -582,7 +595,7 @@ def load_inputs(snapshot):
         release=_parse(data['release']), due=_parse(data['due']),
         predecessors=tuple(data['predecessors']), current_start=_parse(data['current_start']),
         current_end=_parse(data['current_end']),
-        blocked_reason=data['blocked_reason'],
+        blocked_reason=data['blocked_reason'], shift_penalty_per_hour=data.get('shift_penalty_per_hour', 0),
     ) for data in snapshot['jobs']]
     start, end = snapshot['horizon']
     return _parse(start), _parse(end), workcenters, jobs

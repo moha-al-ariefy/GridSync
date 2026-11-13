@@ -24,7 +24,7 @@ INPUT_FIELDS = {'company_id', 'date_from', 'date_to', 'workcenter_ids', 'objecti
 RESULT_FIELDS = {
     'state', 'queued_by', 'compute_error', 'computed_at', 'method', 'currency_id', 'proposed_cost', 'current_cost', 'lower_bound',
     'has_current_cost', 'has_lower_bound', 'complete',
-    'proposed_carbon_kg', 'current_carbon_kg', 'carbon_lower_bound_kg', 'job_count', 'moved_count', 'unchanged_count',
+    'proposed_carbon_kg', 'current_carbon_kg', 'shift_penalty', 'carbon_lower_bound_kg', 'job_count', 'moved_count', 'unchanged_count',
     'unscheduled_count', 'data_notes', 'snapshot', 'line_ids',
     'applied_at', 'applied_by', 'reverted_at', 'reverted_by', 'application_snapshot',
 }
@@ -100,6 +100,7 @@ class GridScheduleRun(models.Model):
     method = fields.Char(readonly=True, copy=False)
     method_label = fields.Char(string="Search result", compute="_compute_method_label")
     currency_id = fields.Many2one('res.currency', readonly=True, copy=False)
+    shift_penalty = fields.Monetary('Estimated shift penalty', readonly=True, copy=False)
     proposed_cost = fields.Monetary('Proposed cost', readonly=True, copy=False)
     current_cost = fields.Monetary('Cost at current times', readonly=True, copy=False)
     lower_bound = fields.Monetary(readonly=True, copy=False)
@@ -400,9 +401,19 @@ class GridScheduleRun(models.Model):
                            calendar=center.resource_calendar_id.name))
         return inputs, notes, sources, components
 
-    def _job_inputs(self, workorders, start):
+    def _job_inputs(self, workorders, start, include_penalties=True):
         keys = set(workorders.ids)
         jobs = []
+        centers = self.workcenter_ids
+        penalties = {}
+        if include_penalties and self.objective != 'gb_carbon':
+            configured = centers.filtered('grid_shift_penalty')
+            if configured:
+                rates = self._tariff_exchange_rates(centers.grid_tariff_source_id, start.date())
+                penalties = {
+                    center.id: center.grid_shift_penalty * rates.get(center.grid_tariff_source_id.currency_id.id, {}).get('factor', 1)
+                    for center in configured
+                }
         for workorder in workorders:
             release, due, blocked, predecessors = start, workorder.production_id.date_deadline or None, None, []
             for predecessor in workorder.blocked_by_workorder_ids:
@@ -421,7 +432,7 @@ class GridScheduleRun(models.Model):
                 key=workorder.id, workcenter=workorder.workcenter_id.id, minutes=workorder.duration_expected,
                 release=release, due=due, predecessors=tuple(sorted(predecessors)),
                 current_start=workorder.date_start or None, current_end=workorder.date_finished or None,
-                blocked_reason=blocked,
+                blocked_reason=blocked, shift_penalty_per_hour=penalties.get(workorder.workcenter_id.id, 0),
             ))
         return jobs
 
@@ -458,7 +469,8 @@ class GridScheduleRun(models.Model):
                 reason = _('The data required for this objective is missing for every suitable time.')
             if item.status == 'unscheduled' and workorder.date_start:
                 reason += ' ' + _('It keeps its current time.')
-            proposed_cost, current_cost = (item.proposed.cost if item.proposed else 0,
+            penalty = item.proposed.shift_penalty if item.proposed else 0
+            proposed_cost, current_cost = (item.proposed.cost - penalty if item.proposed else 0,
                                            item.current.cost if item.current else 0)
             proposed_carbon = current_carbon = 0
             if combined:
@@ -477,12 +489,16 @@ class GridScheduleRun(models.Model):
                 'proposed_start': item.proposed and item.proposed.start,
                 'proposed_end': item.proposed and item.proposed.end,
                 'energy_kwh': item.proposed.energy_kwh if item.proposed else 0,
-                'proposed_cost': proposed_cost, 'proposed_carbon_kg': proposed_carbon,
+                'proposed_cost': proposed_cost, 'proposed_carbon_kg': proposed_carbon, 'shift_penalty': penalty,
                 'current_cost': current_cost, 'current_carbon_kg': current_carbon,
                 'has_current_cost': bool(item.current), 'status': item.status, 'reason_code': item.reason,
                 'reason': reason,
             })
         self.env['grid.schedule.line'].sudo().create(lines)
+        shift_penalty = math.fsum(line['shift_penalty'] for line in lines)
+        has_shift_penalties = any(job.shift_penalty_per_hour for job in job_inputs)
+        if has_shift_penalties:
+            notes.append(_('The search includes estimated shift penalties. Energy costs and savings cover electricity only.'))
         statuses = [item.status for item in result.jobs.values()]
         if not workorders:
             notes.insert(0, _('No open operations were found on these work centers in this period.'))
@@ -490,14 +506,16 @@ class GridScheduleRun(models.Model):
             'state': 'proposed', 'computed_at': now, 'method': result.method,
             'currency_id': (self.company_id.currency_id if use_carbon or any(source.get('exchange_rate') for source in sources)
                             else self.workcenter_ids.grid_tariff_source_id.currency_id).id,
-            'proposed_cost': sum(line['proposed_cost'] for line in lines) if combined else (0 if use_carbon else result.proposed_cost),
+            'proposed_cost': math.fsum(line['proposed_cost'] for line in lines),
             'current_cost': (sum(line['current_cost'] for line in lines) if result.current_cost is not None else 0)
                             if combined else (0 if use_carbon else result.current_cost or 0),
             'proposed_carbon_kg': sum(line['proposed_carbon_kg'] for line in lines),
             'current_carbon_kg': sum(line['current_carbon_kg'] for line in lines) if result.current_cost is not None else 0,
             'carbon_lower_bound_kg': (result.lower_bound or 0) if use_carbon else 0,
+            'shift_penalty': shift_penalty,
             'has_current_cost': result.current_cost is not None,
-            'lower_bound': 0 if use_carbon else result.lower_bound or 0, 'has_lower_bound': not combined and result.lower_bound is not None,
+            'lower_bound': 0 if use_carbon or has_shift_penalties else result.lower_bound or 0,
+            'has_lower_bound': not combined and not has_shift_penalties and result.lower_bound is not None,
             'complete': result.complete, 'job_count': len(statuses),
             'moved_count': statuses.count('moved'), 'unchanged_count': statuses.count('unchanged'),
             'unscheduled_count': statuses.count('unscheduled'), 'data_notes': '\n'.join(notes),
@@ -510,7 +528,8 @@ class GridScheduleRun(models.Model):
                     'status': item.status, 'reason': item.reason,
                     'start': item.proposed and item.proposed.start.isoformat(),
                     'end': item.proposed and item.proposed.end.isoformat(),
-                    ('objective_score' if combined else 'carbon_kg' if use_carbon else 'cost'): item.proposed and item.proposed.cost,
+                    ('objective_score' if combined or has_shift_penalties else 'carbon_kg' if use_carbon else 'cost'):
+                        item.proposed and item.proposed.cost,
                 } for key, item in result.jobs.items()},
             },
         })
@@ -537,6 +556,7 @@ class GridScheduleLine(models.Model):
     energy_kwh = fields.Float('Estimated energy (kWh)', digits=(16, 3))
     current_cost = fields.Monetary('Cost at current time')
     proposed_cost = fields.Monetary('Proposed cost')
+    shift_penalty = fields.Monetary('Estimated shift penalty')
     objective = fields.Selection(related='run_id.objective')
     proposed_carbon_kg = fields.Float('Proposed kg CO₂', digits=(20, 6))
     current_carbon_kg = fields.Float('Current kg CO₂', digits=(20, 6))

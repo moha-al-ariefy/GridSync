@@ -18,11 +18,11 @@
                     </li>
                     <li class="mb-2">
                         <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openWorkCenters">Check the work center</button>.
-                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle.
+                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle. Set a shift penalty per hour if moving a booked start has a cost.
                     </li>
                     <li class="mb-2">
                         <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openSchedule">Compute and review a proposal</button>.
-                        Compare dates and estimated costs before selecting Review and apply. For a mixed-currency proposal, check the exchange rates under Data and assumptions. Use Review revert if the original booking can still be restored safely.
+                        Compare dates, energy savings, and any shift penalty before selecting Review and apply. For a mixed-currency proposal, check the exchange rates under Data and assumptions. Use Review revert if the original booking can still be restored safely.
                     </li>
                     <li class="mb-2">
                         <strong>Compare cost and emissions for a GB site.</strong> Sync the dates under GB carbon intensity, confirm the work center and tariff are for the same GB site, then choose GB cost and emissions and enter a carbon price per tonne.
