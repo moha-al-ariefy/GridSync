@@ -39,6 +39,10 @@
                         <h1><field name="name"/></h1>
                     </div>
                     <field name="complete" invisible="1"/>
+                    <field name="price_refresh_warning" invisible="1"/>
+                    <p class="alert alert-warning" role="status" invisible="not price_refresh_warning">
+                        This proposal used Energy-Charts prices with no refresh in the previous 15 minutes. Check Data and assumptions for the recorded sync time.
+                    </p>
                     <field name="has_current_cost" invisible="1"/>
                     <field name="has_lower_bound" invisible="1"/>
                     <p class="alert alert-info" role="status" invisible="state != 'proposed' or not complete or not moved_count">
@@ -226,6 +230,10 @@
             <form>
                 <field name="operation" invisible="1"/>
                 <group><field name="run_id" options="{'no_open': True}"/></group>
+                <field name="price_refresh_warning" invisible="1"/>
+                <p class="alert alert-warning" role="status" invisible="operation != 'apply' or not price_refresh_warning">
+                    The Energy-Charts prices saved in this proposal were last refreshed over 15 minutes ago, or the refresh time is missing.
+                </p>
                 <p invisible="operation != 'apply'">Apply the reviewed dates to the operations marked Moved? GridSync checks the bookings again before saving.</p>
                 <p invisible="operation != 'revert'">Restore the previous dates of the operations moved by this proposal? GridSync checks for new conflicts before saving.</p>
                 <footer>

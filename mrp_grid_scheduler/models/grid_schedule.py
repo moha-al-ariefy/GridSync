@@ -1,6 +1,6 @@
 import logging
 import math
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytz
 
@@ -113,12 +113,28 @@ class GridScheduleRun(models.Model):
     unscheduled_count = fields.Integer('Not scheduled', readonly=True, copy=False)
     data_notes = fields.Text('Data used', readonly=True, copy=False)
     snapshot = fields.Json(readonly=True, copy=False)
+    price_refresh_warning = fields.Boolean(compute='_compute_price_refresh_warning')
     application_snapshot = fields.Json(readonly=True, copy=False)
     applied_at = fields.Datetime(readonly=True, copy=False)
     applied_by = fields.Many2one('res.users', readonly=True, copy=False)
     reverted_at = fields.Datetime(readonly=True, copy=False)
     reverted_by = fields.Many2one('res.users', readonly=True, copy=False)
     line_ids = fields.One2many('grid.schedule.line', 'run_id', string='Proposed operations', readonly=True, copy=False)
+
+    @api.depends('snapshot', 'computed_at', 'state')
+    def _compute_price_refresh_warning(self):
+        now = fields.Datetime.now()
+        for run in self:
+            reference = now if run.state == 'proposed' else run.computed_at
+            sources = (run.snapshot or {}).get('sources', [])
+            cutoff = reference - timedelta(minutes=15) if reference else None
+            run.price_refresh_warning = bool(cutoff and any(
+                source.get('type') == 'energy_charts' and (
+                    not source.get('last_sync_at')
+                    or datetime.fromisoformat(source['last_sync_at']) < cutoff
+                )
+                for source in sources
+            ))
 
     @api.depends('method')
     def _compute_method_label(self):

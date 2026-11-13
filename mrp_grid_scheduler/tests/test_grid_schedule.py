@@ -245,6 +245,28 @@ class TestGridSchedule(TransactionCase):
         self.assertIn('no longer has access', run.sudo().compute_error)
         self.assertFalse(run.sudo().line_ids)
 
+    def test_apply_dialog_warns_when_the_saved_market_refresh_ages(self):
+        source = self.env['grid.tariff.source'].with_user(self.manager).create({
+            'name': 'Market refresh test', 'source_type': 'energy_charts',
+        })
+        self.add_prices(DAY, 100, {at(13): 10, at(13, 15): 10}, tariff=source)
+        self.center.with_user(self.manager).grid_tariff_source_id = source
+        self.make_production([('Press', self.center, 30)])
+        now = at(0) - timedelta(hours=1)
+        source.sudo().last_sync_at = now
+        run = self.make_run()
+        with patch.object(fields.Datetime, 'now', return_value=now):
+            run.action_compute()
+            self.assertFalse(run.price_refresh_warning)
+
+        source.sudo().last_sync_at = now + timedelta(minutes=16)
+        run.invalidate_recordset(['price_refresh_warning'])
+        with patch.object(fields.Datetime, 'now', return_value=now + timedelta(minutes=16)):
+            self.assertTrue(run.price_refresh_warning)
+            action = run.action_review_apply()
+            dialog = self.env['grid.schedule.confirm'].with_user(self.planner).with_context(action['context']).create({})
+            self.assertTrue(dialog.price_refresh_warning)
+
     def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
         self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})
         _production, (operation,) = self.make_production([('Press', self.center, 60)])

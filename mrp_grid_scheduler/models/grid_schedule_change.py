@@ -289,6 +289,7 @@ class GridScheduleConfirm(models.TransientModel):
 
     run_id = fields.Many2one('grid.schedule.run', required=True, readonly=True)
     operation = fields.Selection([('apply', 'Apply'), ('revert', 'Revert')], required=True, readonly=True)
+    price_refresh_warning = fields.Boolean(related='run_id.price_refresh_warning', compute_sudo=False)
 
     def action_confirm(self):
         self.ensure_one()
