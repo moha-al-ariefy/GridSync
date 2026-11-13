@@ -1,3 +1,5 @@
+from bisect import bisect_right
+from collections import defaultdict
 from datetime import datetime
 
 from psycopg2.errors import LockNotAvailable
@@ -5,12 +7,25 @@ from psycopg2.errors import LockNotAvailable
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 
+from ..services.meter_readings import merge_times
 from ..services.scheduler import ScheduleInputError, check_placements, dump_inputs
 from .grid_schedule import GRID_PLANNER
 
 
 def _date(value):
     return value.isoformat() if value else False
+
+
+def _reviewed_working_time(working, windows):
+    ends = [end for _start, end in windows]
+    overlaps = []
+    for start, end in working:
+        index = bisect_right(ends, start)
+        while index < len(windows) and windows[index][0] < end:
+            low, high = windows[index]
+            overlaps.append((max(start, low), min(end, high)))
+            index += 1
+    return merge_times(overlaps)
 
 
 class GridScheduleRun(models.Model):
@@ -159,7 +174,8 @@ class GridScheduleRun(models.Model):
                        for source in sources]
         frozen_keys = [(source['id'], source['currency'], source.get('exchange_rate'), source.get('converted_to'), source.get('carbon_basis'), source.get('carbon_factors'))
                        for source in self.snapshot['sources']]
-        if dump_inputs(start, end, inputs, jobs) != self.snapshot['inputs'] or source_keys != frozen_keys:
+        current = dump_inputs(start, end, inputs, jobs)
+        if not self._matches_reviewed_inputs(current, lines) or source_keys != frozen_keys:
             if self.objective != 'cost':
                 raise UserError(_('Carbon intensity, working hours or bookings changed. Compute a new proposal.'))
             raise UserError(_('Prices, exchange rates, working hours or bookings changed. Compute a new proposal.'))
@@ -175,6 +191,31 @@ class GridScheduleRun(models.Model):
                 },
             },
         })
+
+    def _matches_reviewed_inputs(self, current, lines):
+        saved = self.snapshot['inputs']
+        if current['jobs'] != saved['jobs']:
+            return False
+
+        windows = defaultdict(list)
+        for line in lines:
+            if line.status == 'unscheduled':
+                continue
+            for start, end in ((line.current_start, line.current_end), (line.proposed_start, line.proposed_end)):
+                if start and end and start < end:
+                    windows[line.workcenter_id.id].append((_date(start), _date(end)))
+        reviewed_windows = {key: merge_times(ranges) for key, ranges in windows.items()}
+
+        def comparable(inputs):
+            return {
+                **inputs,
+                'workcenters': [{
+                    'key': center['key'], 'power_kw': center['power_kw'], 'prices': center['prices'],
+                    'working': _reviewed_working_time(center['working'], reviewed_windows.get(center['key'], ())),
+                } for center in inputs['workcenters']],
+            }
+
+        return comparable(current) == comparable(saved)
 
     def _restore_dates(self, before):
         return {int(key): (datetime.fromisoformat(value['start']), datetime.fromisoformat(value['end']))

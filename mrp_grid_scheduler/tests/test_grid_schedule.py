@@ -432,6 +432,37 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(run.state, 'proposed')
         self.assertFalse(operation.date_start)
 
+    def test_apply_and_revert_allow_unrelated_bookings_and_time_off(self):
+        _production, (operation,) = self.make_production([('Cut', self.center, 30)])
+        operation.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.action_compute()
+        _production, (other,) = self.make_production([('Other booking', self.center, 30)])
+        other.write({'date_start': at(10), 'date_finished': at(10, 30)})
+        self.env['resource.calendar.leaves'].create({
+            'name': 'Unrelated time off', 'calendar_id': self.calendar.id, 'resource_id': self.center.resource_id.id,
+            'date_from': at(11), 'date_to': at(11, 30), 'time_type': 'leave',
+        })
+        run._change_schedule('apply')
+        self.assertEqual((run.state, operation.date_start), ('applied', at(13)))
+        other.write({'date_start': at(10, 30), 'date_finished': at(11)})
+        run._change_schedule('revert')
+        self.assertEqual((run.state, operation.date_start, other.date_start), ('reverted', at(8), at(10, 30)))
+
+    def test_apply_refuses_a_new_conflict_at_the_original_booking(self):
+        _production, (operation,) = self.make_production([('Cut', self.center, 30)])
+        operation.write({'date_start': at(8), 'date_finished': at(8, 30)})
+        run = self.make_run()
+        run.action_compute()
+        self.env['resource.calendar.leaves'].create({
+            'name': 'Maintenance at original booking', 'calendar_id': self.calendar.id,
+            'resource_id': self.center.resource_id.id, 'date_from': at(8), 'date_to': at(8, 30),
+            'time_type': 'other',
+        })
+        with self.assertRaisesRegex(UserError, 'overlaps'):
+            run._change_schedule('apply')
+        self.assertEqual((run.state, operation.date_start), ('proposed', at(8)))
+
     def test_revert_refuses_a_new_conflict(self):
         _production, (operation,) = self.make_production([('Cut', self.center, 30)])
         operation.write({'date_start': at(8), 'date_finished': at(8, 30)})

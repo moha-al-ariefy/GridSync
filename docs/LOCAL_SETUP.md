@@ -81,7 +81,7 @@ The local Odoo 19 load check used 2,000 test operations across 25 work centers. 
 
 ## Apply or revert a proposal
 
-For a proposal with moves, review the dates and costs, then select **Review and apply** and confirm. If some operations could not be scheduled, only the operations marked **Moved** get new dates. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
+For a proposal with moves, review the dates and costs, then select **Review and apply** and confirm. If some operations could not be scheduled, only the operations marked **Moved** get new dates. GridSync checks the saved work orders, prices, calendars and dependencies again before changing Odoo. Bookings and time off elsewhere in the period can change if the reviewed moves and their original dates still fit. If the proposal is stale, use **New run with these settings**. Use a new run for proposals computed before Apply was added.
 
 Select **Review revert** on an applied proposal and confirm to restore the original dates. Originally unplanned operations go back to being unplanned. If an order has started, a booking is in the past, or a newer change makes the original dates unsafe, GridSync stops before writing. If another scheduling update is in progress, try again shortly.
 
