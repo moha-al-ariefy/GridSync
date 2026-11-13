@@ -420,6 +420,21 @@ class TestGridSchedule(TransactionCase):
         self.assertEqual(result.with_user(self.planner).gateway_batch_reference, 'Batch 1')
         self.assertEqual((result.meter_reference, result.measured_kwh), ('Press meter', 10))
 
+    def test_meter_result_keeps_its_emissions_factor(self):
+        line, wizard = self.make_meter_import()
+        self.center.sudo().write({
+            'grid_use_carbon_factor': True, 'grid_carbon_factor': 400,
+            'grid_carbon_reference': 'Test electricity factor',
+        })
+        with patch.object(fields.Datetime, 'now', return_value=at(14)):
+            wizard.action_import()
+        result = line.energy_result_ids
+        self.center.sudo().grid_carbon_factor = 500
+        self.assertTrue(result.has_emissions_estimate)
+        self.assertEqual(result.estimated_emissions_kg, 4)
+        self.assertEqual(result.emissions_reference, 'Test electricity factor')
+        self.assertEqual(Decimal(result.evidence['emissions_factor_g_co2e_per_kwh']), 400)
+
     def test_meter_result_prices_actual_and_original_times(self):
         line, wizard = self.make_meter_import()
         wizard.write({'compare_bill': True, 'bill_reference': 'Test charge line', 'bill_start': at(13),

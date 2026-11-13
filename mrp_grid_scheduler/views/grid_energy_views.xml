@@ -170,6 +170,11 @@
                             <field name="baseline_note" invisible="has_baseline"/>
                         </group>
                     </group>
+                    <field name="has_emissions_estimate" invisible="1"/>
+                    <group string="Electricity emissions estimate" invisible="not has_emissions_estimate">
+                        <field name="estimated_emissions_kg"/>
+                        <field name="emissions_reference"/>
+                    </group>
                     <group string="Bill comparison" invisible="not has_bill">
                         <field name="bill_reference"/>
                         <field name="billed_charge"/>

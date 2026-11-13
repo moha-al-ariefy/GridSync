@@ -47,6 +47,9 @@ class GridEnergyResult(models.Model):
     can_compare_bill = fields.Boolean(compute="_compute_can_compare_bill")
     imported_by = fields.Many2one('res.users', readonly=True)
     evidence = fields.Json(readonly=True)
+    has_emissions_estimate = fields.Boolean(readonly=True)
+    estimated_emissions_kg = fields.Float('Estimated electricity emissions (kg CO₂e)', digits=(20, 6), readonly=True)
+    emissions_reference = fields.Char('Electricity factor source', readonly=True)
     gateway_batch_reference = fields.Char(compute='_compute_gateway_batch_reference', string='Gateway batch')
 
     _one_result_per_operation = models.Constraint('UNIQUE(workorder_id)', 'This operation already has a meter result.')
@@ -298,10 +301,21 @@ class GridEnergyImport(models.TransientModel):
             'gateway_batch_id': batch.id,
             'gateway_batch_reference': batch.name,
         }
+        measured_kwh = sum(kwh for _, _, kwh in readings)
+        center = line.workcenter_id
+        emissions = {}
+        if center.grid_use_carbon_factor:
+            factor = Decimal(str(center.grid_carbon_factor))
+            evidence['emissions_factor_g_co2e_per_kwh'] = str(factor)
+            emissions = {
+                'has_emissions_estimate': True,
+                'estimated_emissions_kg': float(measured_kwh * factor / 1000),
+                'emissions_reference': center.grid_carbon_reference,
+            }
         values = {
             'line_id': line.id, 'workorder_id': line.workorder_id.id, 'tariff_id': tariff.id, 'currency_id': currency.id,
             'first_reading': start, 'last_reading': end, 'meter_reference': meter_reference,
-            'measured_kwh': float(sum(kwh for _, _, kwh in readings)), 'energy_charge': actual,
+            'measured_kwh': float(measured_kwh), 'energy_charge': actual,
             'baseline_charge': original, 'has_baseline': baseline is not None, 'baseline_note': note,
             'estimated_savings': currency.round(original - actual) if baseline is not None else 0,
             'has_bill': self.compare_bill, 'billed_charge': billed,
@@ -309,7 +323,7 @@ class GridEnergyImport(models.TransientModel):
             'bill_checked_at': fields.Datetime.now() if self.compare_bill else False,
             'bill_reference': bill_reference or False,
             'bill_difference': currency.round(billed - actual) if self.compare_bill else 0,
-            'imported_by': self.env.uid, 'evidence': evidence,
+            'imported_by': self.env.uid, 'evidence': evidence, **emissions,
         }
         try:
             result = results.sudo().create(values)

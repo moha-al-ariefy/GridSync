@@ -6,7 +6,8 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 
 GRID_PLANNER = 'mrp_grid_scheduler.group_grid_planner'
 GRID_MANAGER = 'mrp_grid_scheduler.group_grid_manager'
-ENERGY_FIELDS = {'grid_power_kw', 'grid_power_reference', 'grid_tariff_source_id', 'grid_allow_shift'}
+ENERGY_FIELDS = {'grid_power_kw', 'grid_power_reference', 'grid_tariff_source_id', 'grid_allow_shift',
+                 'grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference'}
 
 
 class MrpWorkcenter(models.Model):
@@ -28,6 +29,9 @@ class MrpWorkcenter(models.Model):
         string='Allow schedule suggestions', copy=False, groups=GRID_PLANNER,
         help='Include this work center in GridSync scheduling suggestions.',
     )
+    grid_use_carbon_factor = fields.Boolean('Estimate emissions from a documented factor', groups=GRID_PLANNER, copy=False)
+    grid_carbon_factor = fields.Float('Electricity factor (g CO₂e/kWh)', digits=(12, 6), groups=GRID_PLANNER, copy=False)
+    grid_carbon_reference = fields.Char('Electricity factor source', groups=GRID_PLANNER, copy=False)
     grid_energy_can_edit = fields.Boolean(compute='_compute_grid_energy_can_edit', groups=GRID_PLANNER)
 
     @api.depends_context('uid')
@@ -61,6 +65,12 @@ class MrpWorkcenter(models.Model):
         tariffs.check_access('read')
         # A tariff move and a new link must update the same row in one transaction.
         tariffs.write({'write_date': fields.Datetime.now()})
+
+    @api.constrains('grid_use_carbon_factor', 'grid_carbon_factor', 'grid_carbon_reference')
+    def _check_grid_carbon_factor(self):
+        for center in self.sudo().filtered('grid_use_carbon_factor'):
+            if not 0 <= center.grid_carbon_factor <= 10_000 or not (center.grid_carbon_reference or '').strip():
+                raise ValidationError(_('Enter a non-negative electricity factor up to 10,000 g CO₂e/kWh and its source.'))
 
     @api.constrains('grid_power_kw', 'grid_tariff_source_id', 'grid_allow_shift', 'company_id')
     def _check_grid_energy_settings(self):
