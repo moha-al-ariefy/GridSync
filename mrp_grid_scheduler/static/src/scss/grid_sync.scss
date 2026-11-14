@@ -38,6 +38,23 @@
     border-bottom: 1px solid var(--grid-border);
 }
 
+.o_gridsync_brand {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+}
+
+.o_gridsync_logo {
+    width: 2.5rem;
+    height: 2.5rem;
+    object-fit: contain;
+}
+
+.o_gridsync_intro {
+    padding: 1rem clamp(1rem, 3vw, 2rem);
+    border-bottom: 1px solid var(--grid-border);
+}
+
 .o_gridsync_workspace_body {
     display: grid;
     grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
