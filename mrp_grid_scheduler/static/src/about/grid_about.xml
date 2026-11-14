@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="mrp_grid_scheduler.GridAbout">
+        <main class="o_gridsync_workspace">
+            <header class="o_gridsync_workspace_header">
+                <div class="o_gridsync_brand">
+                    <img src="/mrp_grid_scheduler/static/description/icon-purple.png" alt="GridSync logo" class="o_gridsync_logo"/>
+                    <h1>Welcome to GridSync</h1>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button t-if="!state.tutorialOpen" type="button" class="btn btn-secondary" t-on-click="showTutorial">Open tutorial</button>
+                </div>
+            </header>
+            <section class="o_gridsync_intro" aria-labelledby="grid-intro-title">
+                <h2 id="grid-intro-title" class="h5">What is GridSync</h2>
+                <p class="mb-0">GridSync finds better times to run work orders using electricity prices or Great Britain grid carbon intensity. It shows each proposed schedule before you apply it, explains the result, and lets you restore the original bookings while the schedule still allows it.</p>
+            </section>
+            <section t-if="state.tutorialOpen" class="border rounded p-3 mb-3" aria-labelledby="grid-tutorial-title">
+                <h2 id="grid-tutorial-title" class="h5">Getting started with GridSync</h2>
+                <p class="alert alert-info py-2">Click a hyperlink in a step to open that screen.</p>
+                <ol>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openTariffs">Check the tariff</button>.
+                        Check that the rate your site pays covers the proposed window. For an Energy-Charts source, verify the bidding zone and confirm that your contract follows those wholesale prices. Ask a GridSync manager to add missing rates.
+                    </li>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openWorkCenters">Check the work center</button>.
+                        Open Electricity and check its operating power, tariff, working hours, and scheduling toggle. Assign the work center under Sites to find its proposals and meter results later. Set a shift penalty per hour if moving a booked start has a cost.
+                    </li>
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-link p-0 align-baseline" t-on-click="openSchedule">Compute and review a proposal</button>.
+                        Compare dates, energy savings, and any shift penalty before selecting Review and apply. Apply changes only the operations marked Moved. For a mixed-currency proposal, check the exchange rates under Data and assumptions. Use Review revert if the original booking can still be restored safely.
+                    </li>
+                    <li class="mb-2">
+                        <strong>Compare cost and emissions for a GB site.</strong> Sync the dates under GB carbon intensity, confirm the work center and tariff are for the same GB site, then choose GB cost and emissions and enter a carbon price per tonne.
+                    </li>
+                    <li>
+                        <strong>Check the energy result.</strong> After production, open the applied proposal. A GridSync manager can upload a meter CSV or select a delivery from Meter gateway. Readings must cover the exact productive times recorded in Odoo.
+                    </li>
+                    <li class="mt-2">
+                        <strong>Compare the energy bill.</strong> Open the saved energy result when the bill arrives. Enter the energy charge or, with Odoo Billing access, select a posted vendor bill line for the same meter and exact period. Check the untaxed subtotal before saving.
+                    </li>
+                </ol>
+                <p>Prices, savings, and the price chart are under GridSync > Your Dashboard. On a test database, see Local setup in the repository for a two-step walkthrough with published prices.</p>
+                <button type="button" class="btn btn-secondary" t-on-click="closeTutorial">Close tutorial</button>
+            </section>
+        </main>
+    </t>
+</templates>

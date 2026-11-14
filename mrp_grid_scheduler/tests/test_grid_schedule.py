@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError
-from odoo.tests import TransactionCase, tagged
+from odoo.tests import Form, TransactionCase, tagged
 from odoo.tests.common import new_test_user
 
 from ..services.scheduler import load_inputs, schedule
@@ -268,6 +268,42 @@ class TestGridSchedule(TransactionCase):
             action = run.action_review_apply()
             dialog = self.env['grid.schedule.confirm'].with_user(self.planner).with_context(action['context']).create({})
             self.assertTrue(dialog.price_refresh_warning)
+
+    def test_window_days_and_times_set_the_period(self):
+        form = Form(self.env['grid.schedule.run'].with_user(self.planner).with_context(tz='Asia/Dubai'))
+        form.name = 'Three-day window'
+        form.window_start_date = DAY.date()
+        form.window_end_date = DAY.date() + timedelta(days=2)
+        form.window_start_time = '06:00'
+        form.window_end_time = '24:00'
+        form.workcenter_ids.add(self.center)
+        run = form.save()
+        # Dubai is UTC+4: 06:00 on the first day and midnight after the last day.
+        self.assertEqual(run.date_from, DAY + timedelta(hours=2))
+        self.assertEqual(run.date_to, DAY + timedelta(days=3, hours=-4))
+        run = run.with_context(tz='Asia/Dubai')
+        self.assertEqual((run.window_start_date, run.window_start_time), (DAY.date(), '06:00'))
+        self.assertEqual((run.window_end_date, run.window_end_time), (DAY.date() + timedelta(days=2), '24:00'))
+
+    def test_cost_analysis_compares_like_for_like(self):
+        _production, (cut, finish) = self.make_production([('Cut', self.center, 60), ('Finish', self.center, 30)])
+        cut.write({'date_start': at(8), 'date_finished': at(9)})
+        finish.write({'date_start': at(9), 'date_finished': at(9, 30)})
+        self.make_production([('Unplanned', self.center, 15)])
+        run = self.make_run()
+        run.action_compute()
+        compared = run.line_ids.filtered('has_current_cost')
+        self.assertEqual((run.job_count, run.compared_count), (3, 2))
+        self.assertAlmostEqual(run.compared_current_cost, 3.0)
+        self.assertAlmostEqual(run.compared_proposed_cost, 0.3)
+        self.assertAlmostEqual(run.compared_saving, 2.7)
+        self.assertAlmostEqual(run.saving_percent, 90.0)
+        self.assertAlmostEqual(run.current_price_kwh, 3.0 / 30)
+        self.assertAlmostEqual(sum(compared.mapped('saving')), 2.7)
+        self.assertFalse((run.line_ids - compared).saving)
+        self.assertIn('Schedule test press', run.cost_breakdown)
+        blank = self.env['grid.schedule.run'].with_user(self.planner).new({})
+        self.assertFalse(blank.name or blank.date_from or blank.date_to or blank.workcenter_ids)
 
     def test_flat_tariff_keeps_bookings_and_reports_zero_savings(self):
         self.tariff.slot_ids.sudo().write({'price_per_mwh': 270})

@@ -1,0 +1,16 @@
+1 Cover page (Overview) needs to add the company logo in the header. DONE
+2 Change heading from "Electricity Prices" to "Welcome to GridSync" DONE
+3 Add a "What is GridSync" section at the beginning before the "Getting started with GridSync" section DONE
+4 Add a "click hyperlink" note during the tutorial process. DONE
+
+5 Rename Overview page into "About" and its file accordingly. Update every other call to the new name. DONE
+6 Rename "Tutorial" button to "Open tutorial" DONE
+7 Move the preivewed data, that is shown after "Close tutorial", to a new separate page named Your Dashboard. DONE
+8 Add a visual net cost asset on the page with positive values being green and negative values being red and showing underneath the main costing source and a hyperlink to it DONE
+9 Add a visual progress chart/graph asset that shows relevant information on the x and y-axes (I have not selected which) DONE
+
+10 Reformat Cost Analysis tab's table so that there is no need to scroll horizontally. DONE
+11 Remove "Product Capacities" from the Work Center tab. DONE
+
+
+## Explain Meter batches and where its getting its data from.

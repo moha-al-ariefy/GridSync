@@ -13,3 +13,4 @@
 - Label test rates and readings. If a number is an estimate, say so where it shows up.
 - Keep comments short. Explain why the code needs the extra check if the code itself doesn't make it obvious.
 - Send the diff, the commit message, and what you actually tested. If something still needs checking, say what it is. Get it reviewed before pushing to main.
+
