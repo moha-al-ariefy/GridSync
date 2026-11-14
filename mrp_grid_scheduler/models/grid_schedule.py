@@ -1,13 +1,15 @@
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 import pytz
 
+from markupsafe import Markup
 from psycopg2 import OperationalError
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
+from odoo.tools import format_amount
 
 from ..services.scheduler import (
     BASELINE_METHOD, BOUNDED_METHOD, EXACT_METHOD, MAX_HORIZON, MAX_JOBS, METHOD, STEP, JobInput, ScheduleInputError, WorkcenterInput,
@@ -26,6 +28,11 @@ RESULT_FIELDS = {
     'unscheduled_count', 'data_notes', 'snapshot', 'line_ids',
     'applied_at', 'applied_by', 'reverted_at', 'reverted_by', 'application_snapshot',
 }
+
+
+# Quarter-hour choices for the planning window, matching the 15-minute tariff intervals.
+TIME_OPTIONS = [(f'{minutes // 60:02d}:{minutes % 60:02d}', f'{minutes // 60:02d}:{minutes % 60:02d}')
+                for minutes in range(0, 24 * 60 + 1, 15)]
 
 
 def _utc(value):
@@ -66,20 +73,21 @@ class GridScheduleRun(models.Model):
 
     _queued_runs = models.Index("(id) WHERE state = 'queued'")
 
-    def _default_date_from(self):
-        return ceil_slot(fields.Datetime.now())
-
-    def _default_date_to(self):
-        return ceil_slot(fields.Datetime.now()) + timedelta(days=1)
-
-    name = fields.Char(required=True, default=lambda self: self.env._('Schedule proposal'))
+    name = fields.Char(required=True)
     company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, index=True)
     state = fields.Selection([
         ('draft', 'Draft'), ('queued', 'Queued'), ('failed', 'Failed'),
         ('proposed', 'Proposed'), ('applied', 'Applied'), ('reverted', 'Reverted'),
     ], default='draft', required=True, readonly=True, copy=False)
-    date_from = fields.Datetime('Period start', required=True, default=_default_date_from)
-    date_to = fields.Datetime('Period end', required=True, default=_default_date_to)
+    date_from = fields.Datetime('Period start', required=True)
+    date_to = fields.Datetime('Period end', required=True)
+    # Form helpers: pick the days once, then a start and end time on those days.
+    window_start_date = fields.Date('First day', compute='_compute_window_start', readonly=False)
+    window_end_date = fields.Date('Last day', compute='_compute_window_end', readonly=False)
+    window_start_time = fields.Selection(TIME_OPTIONS, string='Start time', compute='_compute_window_start',
+                                         readonly=False)
+    window_end_time = fields.Selection(TIME_OPTIONS, string='End time', compute='_compute_window_end',
+                                       readonly=False)
     workcenter_ids = fields.Many2many(
         'mrp.workcenter', string='Work centers', check_company=True,
         domain="[('company_id', '=', company_id), ('grid_allow_shift', '=', True)]",
@@ -136,6 +144,59 @@ class GridScheduleRun(models.Model):
                 for source in sources
             ))
 
+    # Cost analysis, derived from the proposal lines.
+    energy_kwh = fields.Float('Estimated energy (kWh)', digits=(16, 1), compute='_compute_cost_analysis')
+    compared_count = fields.Integer('Operations with both costs', compute='_compute_cost_analysis')
+    compared_current_cost = fields.Monetary('Their cost at current times', compute='_compute_cost_analysis')
+    compared_proposed_cost = fields.Monetary('Their proposed cost', compute='_compute_cost_analysis')
+    compared_saving = fields.Monetary('Their saving', compute='_compute_cost_analysis')
+    saving_percent = fields.Float('Saving (%)', digits=(5, 1), compute='_compute_cost_analysis')
+    current_price_kwh = fields.Float('Average price at current times (per kWh)', digits=(12, 4),
+                                     compute='_compute_cost_analysis')
+    proposed_price_kwh = fields.Float('Average proposed price (per kWh)', digits=(12, 4),
+                                      compute='_compute_cost_analysis')
+    cost_breakdown = fields.Html('Cost by work center', sanitize=False, compute='_compute_cost_analysis')
+
+    def _window_zone(self):
+        return pytz.timezone(self.env.context.get('tz') or self.env.user.tz or 'UTC')
+
+    def _local_window_part(self, value, is_end):
+        """Split a stored UTC datetime into the local day and quarter-hour shown on the form."""
+        if not value:
+            return False, False
+        local = pytz.utc.localize(value).astimezone(self._window_zone()).replace(tzinfo=None)
+        if is_end and local.time() == time.min:
+            # Show a window ending at midnight as 24:00 on the previous day.
+            return (local - timedelta(days=1)).date(), '24:00'
+        minute = local.hour * 60 + local.minute
+        quarter = minute - minute % 15
+        return local.date(), f'{quarter // 60:02d}:{quarter % 60:02d}'
+
+    # Start and end are computed separately, so choosing one never clears the other.
+    @api.depends('date_from')
+    @api.depends_context('tz')
+    def _compute_window_start(self):
+        for run in self:
+            run.window_start_date, run.window_start_time = run._local_window_part(run.date_from, False)
+
+    @api.depends('date_to')
+    @api.depends_context('tz')
+    def _compute_window_end(self):
+        for run in self:
+            run.window_end_date, run.window_end_time = run._local_window_part(run.date_to, True)
+
+    @api.onchange('window_start_date', 'window_end_date', 'window_start_time', 'window_end_time')
+    def _onchange_window_parts(self):
+        zone = self._window_zone()
+        for run in self:
+            for day, clock, target in ((run.window_start_date, run.window_start_time, 'date_from'),
+                                       (run.window_end_date, run.window_end_time, 'date_to')):
+                if not (day and clock):
+                    continue
+                hours, minutes = map(int, clock.split(':'))
+                local = datetime.combine(day, time.min) + timedelta(hours=hours, minutes=minutes)
+                run[target] = _utc(zone.localize(local))
+
     @api.depends('method')
     def _compute_method_label(self):
         labels = {
@@ -146,6 +207,65 @@ class GridScheduleRun(models.Model):
         }
         for run in self:
             run.method_label = labels.get(run.method, run.method)
+
+    @api.depends('currency_id', 'line_ids.status', 'line_ids.energy_kwh', 'line_ids.current_cost',
+                 'line_ids.proposed_cost', 'line_ids.has_current_cost', 'line_ids.workcenter_id')
+    def _compute_cost_analysis(self):
+        for run in self:
+            scheduled = run.line_ids.filtered(lambda line: line.status != 'unscheduled')
+            # Only operations with a priced current booking can be compared like for like.
+            compared = scheduled.filtered('has_current_cost')
+            current = sum(compared.mapped('current_cost'))
+            proposed = sum(compared.mapped('proposed_cost'))
+            compared_kwh = sum(compared.mapped('energy_kwh'))
+            scheduled_kwh = sum(scheduled.mapped('energy_kwh'))
+            run.energy_kwh = scheduled_kwh
+            run.compared_count = len(compared)
+            run.compared_current_cost = current
+            run.compared_proposed_cost = proposed
+            run.compared_saving = current - proposed
+            run.saving_percent = 100 * (current - proposed) / current if current else 0
+            run.current_price_kwh = current / compared_kwh if compared_kwh else 0
+            run.proposed_price_kwh = sum(scheduled.mapped('proposed_cost')) / scheduled_kwh if scheduled_kwh else 0
+            run.cost_breakdown = run._cost_breakdown_table(scheduled) if scheduled else False
+
+    def _cost_breakdown_table(self, lines):
+        self.ensure_one()
+
+        def money(value):
+            return format_amount(self.env, value, self.currency_id) if self.currency_id else f'{value:.2f}'
+
+        labels = [_('Work center'), _('Operations'), _('kWh'), _('At current times'), _('Proposed'),
+                  _('Saving'), _('Saving %')]
+
+        def row(values):
+            # data-label lets narrow screens show each row as a labelled card instead of scrolling sideways.
+            cells = [Markup('<td data-label="{}">{}</td>').format(labels[0], values[0])]
+            cells += [Markup('<td class="text-end" data-label="{}">{}</td>').format(label, value)
+                      for label, value in zip(labels[1:], values[1:])]
+            return Markup('<tr>{}</tr>').format(Markup('').join(cells))
+
+        rows = []
+        for center in lines.workcenter_id.sorted('name'):
+            group = lines.filtered(lambda line: line.workcenter_id == center)
+            compared = group.filtered('has_current_cost')
+            kwh = sum(group.mapped('energy_kwh'))
+            proposed = sum(group.mapped('proposed_cost'))
+            if compared and len(compared) == len(group):
+                current = sum(compared.mapped('current_cost'))
+                saving = current - proposed
+                percent = f'{100 * saving / current:.1f}%' if current else '-'
+                current_text, saving_text = money(current), money(saving)
+            else:
+                current_text = saving_text = percent = '-'
+            rows.append(row([center.name, len(group), f'{kwh:,.0f}', current_text, money(proposed),
+                             saving_text, percent]))
+        headings = [Markup('<th>{}</th>').format(labels[0])]
+        headings += [Markup('<th class="text-end">{}</th>').format(label) for label in labels[1:]]
+        header = Markup(
+            '<table class="table table-sm o_gridsync_cost_table"><thead><tr>{}</tr></thead><tbody>'
+        ).format(Markup('').join(headings))
+        return header + Markup('').join(rows) + Markup('</tbody></table>')
 
     @api.depends('proposed_cost', 'current_cost', 'lower_bound', 'has_current_cost', 'has_lower_bound')
     def _compute_comparison(self):
@@ -557,7 +677,7 @@ class GridScheduleLine(models.Model):
 
     run_id = fields.Many2one('grid.schedule.run', required=True, ondelete='cascade', index=True)
     company_id = fields.Many2one(related='run_id.company_id', store=True, index=True)
-    currency_id = fields.Many2one(related='run_id.currency_id')
+    currency_id = fields.Many2one(related='run_id.currency_id', store=True)
     workorder_id = fields.Many2one('mrp.workorder', string='Operation', ondelete='set null', index=True)
     production_id = fields.Many2one('mrp.production', string='Manufacturing order', ondelete='set null')
     workcenter_id = fields.Many2one('mrp.workcenter', string='Work center', ondelete='set null')
@@ -576,8 +696,16 @@ class GridScheduleLine(models.Model):
     proposed_carbon_kg = fields.Float('Proposed kg CO₂', digits=(20, 6))
     current_carbon_kg = fields.Float('Current kg CO₂', digits=(20, 6))
     has_current_cost = fields.Boolean()
+    saving = fields.Monetary(compute='_compute_saving', store=True,
+                             help='Cost at the current time minus the proposed cost, when both are known.')
     status = fields.Selection([
         ('moved', 'Moved'), ('unchanged', 'Unchanged'), ('unscheduled', 'Not scheduled'),
     ], required=True)
     reason_code = fields.Char()
     reason = fields.Char()
+
+    @api.depends('status', 'has_current_cost', 'current_cost', 'proposed_cost')
+    def _compute_saving(self):
+        for line in self:
+            known = line.has_current_cost and line.status != 'unscheduled'
+            line.saving = line.current_cost - line.proposed_cost if known else 0

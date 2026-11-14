@@ -1,22 +1,26 @@
+// Workspace pages (Your Dashboard, About) use Odoo's own palette tokens. Odoo compiles this
+// file with its theme variables, so the colors follow the database's brand and dark mode.
 .o_gridsync_workspace {
-    --grid-border: var(--bs-border-color, #d9dfe6);
-    --grid-muted: var(--bs-secondary-color, #536070);
-    --grid-surface: var(--bs-body-bg, #fff);
-    --grid-subtle: var(--bs-tertiary-bg, #f5f7fa);
+    --grid-border: #{$o-gray-300};
+    --grid-muted: #{$o-gray-600};
+    --grid-surface: #{$o-view-background-color};
+    --grid-subtle: #{$o-gray-100};
+    --grid-action: #{$o-action};
+    --grid-active-bg: #{$o-component-active-bg};
     display: flex;
     flex-direction: column;
     height: 100%;
     overflow: auto;
     background: var(--grid-surface);
+    color: $o-main-text-color;
 
     h1, h2 {
         margin: 0;
-        font-weight: 650;
+        font-weight: 500;
     }
 
     h1 {
         font-size: clamp(1.35rem, 3vw, 1.8rem);
-        letter-spacing: -.035em;
     }
 
     h2 {
@@ -50,9 +54,45 @@
     object-fit: contain;
 }
 
-.o_gridsync_intro {
+.o_gridsync_workspace .o_gridsync_intro {
     padding: 1rem clamp(1rem, 3vw, 2rem);
     border-bottom: 1px solid var(--grid-border);
+}
+
+.o_gridsync_net {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: .75rem;
+    margin: 1rem 0;
+}
+
+.o_gridsync_net_tile {
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    padding: .75rem 1rem;
+    border: 1px solid var(--grid-border);
+    border-radius: $o-border-radius-lg;
+    background: var(--grid-surface);
+
+    strong {
+        font-size: 1.15rem;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+.o_gridsync_chart {
+    margin: 0 0 1rem;
+
+    figcaption {
+        margin-bottom: .5rem;
+    }
+}
+
+.o_gridsync_chart_canvas {
+    position: relative;
+    height: 16rem;
 }
 
 .o_gridsync_workspace_body {
@@ -71,10 +111,13 @@
     border-inline-end: 1px solid var(--grid-border);
     background: var(--grid-subtle);
 
+    // Section title in the style of Odoo's search panel.
     h2 {
         margin: 0 .55rem .65rem;
         color: var(--grid-muted);
-        font-size: .85rem;
+        font-size: .8rem;
+        font-weight: 700;
+        text-transform: uppercase;
     }
 
     @media (max-width: 760px) {
@@ -91,7 +134,7 @@
     padding: .55rem .7rem;
     border: 1px solid transparent;
     border-inline-start-width: 3px;
-    border-radius: .35rem;
+    border-radius: $o-border-radius;
     background: transparent;
     color: inherit;
     text-align: start;
@@ -101,20 +144,20 @@
         color: var(--grid-muted);
     }
 
+    // Selected source uses Odoo's active-component colors.
     &[aria-pressed="true"] {
-        border-color: var(--grid-border);
-        border-inline-start-color: var(--o-action, #245f92);
-        background: var(--grid-surface);
+        border-inline-start-color: var(--grid-action);
+        background: var(--grid-active-bg);
     }
 
     &:focus-visible {
-        outline: 2px solid var(--o-action, #245f92);
+        outline: 2px solid var(--grid-action);
         outline-offset: 1px;
     }
 
     @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--grid-surface);
+        &:not([aria-pressed="true"]):hover {
+            background: $o-gray-200;
         }
     }
 }
@@ -145,21 +188,24 @@
         padding-block: .55rem;
         color: inherit;
         caption-side: top;
-        font-weight: 600;
+        font-weight: 500;
 
         .o_gridsync_meta {
             font-weight: 400;
         }
     }
 
+    // Header and rows styled like an Odoo list view.
     th, td {
         padding: .65rem .8rem;
-        border-bottom: 1px solid var(--grid-border);
+        border-bottom: 1px solid $o-gray-200;
         white-space: nowrap;
     }
 
     th {
-        background: var(--grid-subtle);
+        border-bottom-color: $o-gray-400;
+        background: var(--grid-surface);
+        font-weight: 700;
     }
 
     @media (hover: hover) and (pointer: fine) {
@@ -214,5 +260,121 @@
 
     .o_field_float {
         font-variant-numeric: tabular-nums;
+    }
+}
+
+// Schedule proposal form: standard Odoo look, with more room between rows and sections.
+.o_gridsync_run_form {
+    .o_form_sheet {
+        padding: 2rem 2.5rem 2.5rem;
+    }
+
+    .oe_title {
+        margin-bottom: .75rem;
+    }
+
+    .o_gridsync_lead {
+        margin-bottom: 1.5rem;
+        max-width: 60rem;
+    }
+
+    // Space between the two column groups and between stacked groups.
+    .o_gridsync_group {
+        margin-bottom: 1.75rem;
+        row-gap: 1.5rem;
+
+        > .o_inner_group {
+            padding-inline-end: 1.5rem;
+        }
+    }
+
+    // Taller rows so labels and values do not crowd each other.
+    .o_inner_group > .o_wrap_field,
+    .o_inner_group > div > .o_wrap_field,
+    .o_inner_group .o_cell {
+        padding-top: .45rem;
+        padding-bottom: .45rem;
+    }
+
+    .o_horizontal_separator {
+        margin-top: 1.25rem;
+        margin-bottom: .75rem;
+    }
+
+    .o_gridsync_times .o_field_selection {
+        max-width: 9rem;
+    }
+
+    .o_gridsync_hint {
+        margin-top: .5rem;
+        font-size: .9rem;
+        line-height: 1.5;
+    }
+
+    .o_notebook {
+        margin-top: 1.5rem;
+    }
+
+    .o_notebook .tab-pane {
+        padding-top: 1rem;
+    }
+
+    // Cost by work center: fit the sheet width instead of scrolling sideways.
+    .o_gridsync_cost_table {
+        width: 100%;
+        margin-top: .5rem;
+        table-layout: fixed;
+        font-variant-numeric: tabular-nums;
+
+        td,
+        th {
+            padding: .6rem .5rem;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            vertical-align: top;
+        }
+
+        th:first-child, td:first-child {
+            width: 28%;
+        }
+
+        // Narrow screens: each work center becomes a labelled card.
+        @media (max-width: 640px) {
+            thead {
+                display: none;
+            }
+
+            tr, td {
+                display: block;
+                width: auto !important;
+            }
+
+            tr {
+                padding-block: .5rem;
+                border-bottom: 1px solid var(--bs-border-color, #d9dfe6);
+            }
+
+            td {
+                display: flex;
+                justify-content: space-between;
+                gap: 1rem;
+                padding: .15rem 0;
+                border: 0;
+
+                &::before {
+                    content: attr(data-label);
+                    color: var(--bs-secondary-color, #536070);
+                    text-align: start;
+                }
+            }
+
+            td:first-child {
+                font-weight: 600;
+
+                &::before {
+                    content: none;
+                }
+            }
+        }
     }
 }

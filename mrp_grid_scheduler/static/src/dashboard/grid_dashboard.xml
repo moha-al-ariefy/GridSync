@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="mrp_grid_scheduler.GridDashboard">
+        <main class="o_gridsync_workspace">
+            <header class="o_gridsync_workspace_header">
+                <h1>Your Dashboard</h1>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-secondary" t-on-click="openTariffs">Manage sources</button>
+                </div>
+            </header>
+            <div t-if="!state.sources.length" class="o_gridsync_empty">
+                <t t-if="state.failed">
+                    <p>Tariff sources could not be loaded.</p>
+                    <button type="button" class="btn btn-secondary" t-on-click="loadSources">Try again</button>
+                </t>
+                <p t-else="">Add a tariff source to view its price intervals here.</p>
+            </div>
+            <div t-else="" class="o_gridsync_workspace_body">
+                <aside class="o_gridsync_sources" aria-labelledby="grid-source-heading">
+                    <h2 id="grid-source-heading">Tariff sources</h2>
+                    <ul class="list-unstyled mb-0">
+                        <li t-foreach="state.sources" t-as="item" t-key="item.id">
+                            <button type="button" class="o_gridsync_source"
+                                    t-att-aria-pressed="item.id === state.sourceId ? 'true' : 'false'"
+                                    t-on-click="() => this.selectSource(item.id)">
+                                <span class="fw-semibold" t-esc="item.name"/>
+                                <small><t t-esc="item.company_id[1]"/> | <t t-esc="item.currency_id[1]"/></small>
+                            </button>
+                        </li>
+                    </ul>
+                </aside>
+                <section t-if="source" class="o_gridsync_prices" aria-labelledby="grid-price-heading">
+                    <div class="o_gridsync_price_header">
+                        <div>
+                            <h2 id="grid-price-heading" t-esc="source.name"/>
+                            <p t-if="source.source_type === 'energy_charts'" class="o_gridsync_meta">
+                                Published day-ahead wholesale (<t t-esc="source.energy_charts_market"/>) | <t t-if="source.last_sync_at">Synced <t t-esc="dateTime(source.last_sync_at)"/></t>
+                                <t t-else="">Awaiting first sync</t>
+                            </p>
+                            <p t-elif="source.source_type === 'manual_tou'" class="o_gridsync_meta">
+                                From time-of-use rules<t t-if="source.last_sync_at"> | Generated <t t-esc="dateTime(source.last_sync_at)"/></t>
+                            </p>
+                            <p t-elif="source.source_type === 'csv'" class="o_gridsync_meta">
+                                <t t-if="source.csv_price_basis === 'forecast'">CSV forecast</t>
+                                <t t-elif="source.csv_price_basis === 'actual'">CSV actual prices</t>
+                                <t t-else="">Supplied CSV prices</t>
+                                <t t-if="source.last_sync_at"> | Imported <t t-esc="dateTime(source.last_sync_at)"/></t>
+                            </p>
+                            <p t-else="" class="o_gridsync_meta">Manually entered tariff</p>
+                        </div>
+                        <button type="button" class="btn btn-primary" t-on-click="openSource">Open tariff</button>
+                    </div>
+                    <div class="o_gridsync_net" role="group" aria-label="Net cost">
+                        <div class="o_gridsync_net_tile">
+                            <span class="o_gridsync_meta">
+                                <t t-if="state.historical">Latest stored price</t>
+                                <t t-else="">Current price</t>
+                            </span>
+                            <t t-if="currentPrice">
+                                <strong t-att-class="toneClass(currentPrice.price_per_mwh)">
+                                    <i t-att-class="toneIcon(currentPrice.price_per_mwh)" aria-hidden="true"/>
+                                    <t t-esc="signed(price(currentPrice.price_per_mwh), currentPrice.price_per_mwh)"/>
+                                    <small> <t t-esc="source.currency_id[1]"/> / MWh</small>
+                                </strong>
+                            </t>
+                            <strong t-elif="!state.loading">No price yet</strong>
+                            <button type="button" class="btn btn-link p-0 align-self-start" t-on-click="openSource">View tariff</button>
+                        </div>
+                        <div class="o_gridsync_net_tile">
+                            <span class="o_gridsync_meta">Net saving from applied proposals</span>
+                            <t t-if="state.savingsFailed"><strong>Could not load</strong></t>
+                            <t t-elif="!state.proposalSavings.length"><strong>No applied proposals yet</strong></t>
+                            <t t-else="">
+                                <strong t-foreach="state.proposalSavings" t-as="total" t-key="total.id" t-att-class="toneClass(total.amount)">
+                                    <i t-att-class="toneIcon(total.amount)" aria-hidden="true"/>
+                                    <t t-esc="money(total)"/>
+                                </strong>
+                            </t>
+                            <button type="button" class="btn btn-link p-0 align-self-start" t-on-click="openAppliedProposals">View proposals</button>
+                        </div>
+                        <div class="o_gridsync_net_tile">
+                            <span class="o_gridsync_meta">Metered energy-charge savings</span>
+                            <t t-if="state.savingsFailed"><strong>Could not load</strong></t>
+                            <t t-elif="!state.meterSavings.length"><strong>No meter results yet</strong></t>
+                            <t t-else="">
+                                <strong t-foreach="state.meterSavings" t-as="total" t-key="total.id" t-att-class="toneClass(total.amount)">
+                                    <i t-att-class="toneIcon(total.amount)" aria-hidden="true"/>
+                                    <t t-esc="money(total)"/>
+                                </strong>
+                            </t>
+                            <button type="button" class="btn btn-link p-0 align-self-start" t-on-click="openEnergyResults">View energy results</button>
+                        </div>
+                    </div>
+                    <p t-if="state.refreshFailed" role="status">Automatic refresh is unavailable. Showing stored data.</p>
+                    <p t-if="source.profile_dirty &amp;&amp; source.last_sync_at" class="alert alert-warning" role="status">
+                        Rules or dates changed. Generate intervals again before using those prices.
+                    </p>
+                    <p t-if="state.lastLoad?.state === 'failed'" class="alert alert-warning" role="status">
+                        The last refresh failed. Previously stored prices are still available.
+                    </p>
+                    <p t-elif="oldMarketSync" class="o_gridsync_meta">Last successful refresh was over 15 minutes ago.</p>
+                    <p t-if="state.lastLoad?.missing || intervalGap" class="o_gridsync_meta">
+                        Some intervals are missing. Check load history or open the full tariff for details.
+                    </p>
+                    <p t-if="state.loading" role="status">Loading intervals…</p>
+                    <p t-elif="state.failed" role="status">Price intervals could not be loaded. Select the source to try again.</p>
+                    <p t-elif="!state.slots.length" role="status">This source has no price intervals yet.</p>
+                    <t t-else="">
+                        <figure t-if="state.chartSlots.length" class="o_gridsync_chart">
+                            <figcaption>
+                                <t t-if="state.chartHistorical">Most recent stored prices</t>
+                                <t t-else="">Prices over the next 24 hours</t>
+                                <span class="o_gridsync_meta"> | <t t-esc="timezone"/></span>
+                            </figcaption>
+                            <div class="o_gridsync_chart_canvas">
+                                <canvas t-ref="priceChart" role="img"
+                                        t-att-aria-label="'Line chart of ' + source.name + ' prices per MWh over time. The table below lists the next intervals.'"/>
+                            </div>
+                        </figure>
+                        <div class="o_gridsync_table_scroll">
+                            <table class="o_gridsync_prices_table">
+                                <caption>
+                                    <t t-if="state.historical">No current or upcoming prices. Most recent stored intervals</t>
+                                    <t t-else="">Current and upcoming intervals</t>
+                                    <span class="o_gridsync_meta"> | <t t-esc="timezone"/></span>
+                                </caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Interval</th>
+                                        <th scope="col" class="o_gridsync_number"><t t-esc="source.currency_id[1]"/> / MWh</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="state.slots" t-as="slot" t-key="slot.id">
+                                        <td t-esc="intervalDate(slot)"/>
+                                        <td t-esc="intervalTime(slot)"/>
+                                        <td class="o_gridsync_number" t-esc="price(slot.price_per_mwh)"/>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </t>
+                </section>
+            </div>
+        </main>
+    </t>
+</templates>

@@ -22,8 +22,10 @@
         'web.assets_backend': [
             'mrp_grid_scheduler/static/src/scss/grid_sync.scss',
             'mrp_grid_scheduler/static/src/forms/form_actions.xml',
-            'mrp_grid_scheduler/static/src/guide/grid_guide.js',
-            'mrp_grid_scheduler/static/src/guide/grid_guide.xml',
+            'mrp_grid_scheduler/static/src/about/grid_about.js',
+            'mrp_grid_scheduler/static/src/about/grid_about.xml',
+            'mrp_grid_scheduler/static/src/dashboard/grid_dashboard.js',
+            'mrp_grid_scheduler/static/src/dashboard/grid_dashboard.xml',
             'mrp_grid_scheduler/static/src/tariffs/tariff_views.js',
         ],
     },

@@ -9,7 +9,7 @@
                 <app name="mrp_grid_scheduler" string="GridSync" logo="/mrp_grid_scheduler/static/description/icon-purple.png" groups="base.group_system">
                     <block title="Electricity prices">
                         <setting id="grid_tariff_auto_sync" company_dependent="1"
-                                 help="Check Energy-Charts prices every five minutes and when Overview or Tariffs opens. GridSync managers can also sync manually.">
+                                 help="Check Energy-Charts prices every five minutes and when Your Dashboard or Tariffs opens. GridSync managers can also sync manually.">
                             <field name="grid_auto_sync"/>
                         </setting>
                     </block>

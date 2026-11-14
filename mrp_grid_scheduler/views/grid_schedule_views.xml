@@ -19,11 +19,85 @@
             </list>
         </field>
     </record>
+    <record id="view_grid_schedule_line_pivot" model="ir.ui.view">
+        <field name="name">grid.schedule.line.pivot</field>
+        <field name="model">grid.schedule.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Cost analysis" sample="1">
+                <field name="workcenter_id" type="row"/>
+                <field name="status" type="col"/>
+                <field name="energy_kwh" type="measure"/>
+                <field name="current_cost" type="measure"/>
+                <field name="proposed_cost" type="measure"/>
+                <field name="saving" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+    <record id="view_grid_schedule_line_graph" model="ir.ui.view">
+        <field name="name">grid.schedule.line.graph</field>
+        <field name="model">grid.schedule.line</field>
+        <field name="arch" type="xml">
+            <graph string="Cost analysis" type="bar" sample="1">
+                <field name="workcenter_id"/>
+                <field name="saving" type="measure"/>
+            </graph>
+        </field>
+    </record>
+    <record id="view_grid_schedule_line_list" model="ir.ui.view">
+        <field name="name">grid.schedule.line.list</field>
+        <field name="model">grid.schedule.line</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="currency_id" column_invisible="1"/>
+                <field name="run_id"/>
+                <field name="production_id"/>
+                <field name="operation"/>
+                <field name="workcenter_id"/>
+                <field name="current_start"/>
+                <field name="proposed_start"/>
+                <field name="energy_kwh" sum="Total"/>
+                <field name="current_cost" sum="Total"/>
+                <field name="proposed_cost" sum="Total"/>
+                <field name="saving" sum="Total"/>
+                <field name="status" widget="badge"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_grid_schedule_line_search" model="ir.ui.view">
+        <field name="name">grid.schedule.line.search</field>
+        <field name="model">grid.schedule.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="run_id"/>
+                <field name="workcenter_id"/>
+                <field name="production_id"/>
+                <filter name="moved" string="Moved" domain="[('status', '=', 'moved')]"/>
+                <filter name="compared" string="Has current cost" domain="[('has_current_cost', '=', True)]"/>
+                <separator/>
+                <filter name="applied" string="Applied proposals" domain="[('run_id.state', '=', 'applied')]"/>
+                <group>
+                    <filter name="group_run" string="Proposal" context="{'group_by': 'run_id'}"/>
+                    <filter name="group_workcenter" string="Work center" context="{'group_by': 'workcenter_id'}"/>
+                    <filter name="group_day" string="Proposed day" context="{'group_by': 'proposed_start:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="action_grid_cost_analysis" model="ir.actions.act_window">
+        <field name="name">Cost analysis</field>
+        <field name="res_model">grid.schedule.line</field>
+        <field name="view_mode">pivot,graph,list</field>
+        <field name="search_view_id" ref="view_grid_schedule_line_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No proposals to analyse yet</p>
+            <p>Compute a schedule proposal to compare costs at current and proposed times by work center, day and proposal.</p>
+        </field>
+    </record>
     <record id="view_grid_schedule_run_form" model="ir.ui.view">
         <field name="name">grid.schedule.run.form</field>
         <field name="model">grid.schedule.run</field>
         <field name="arch" type="xml">
-            <form string="Schedule proposal" js_class="grid_record_form">
+            <form string="Schedule proposal" js_class="grid_record_form" class="o_gridsync_run_form">
                 <header>
                     <button name="action_compute" type="object" string="Compute proposal" class="btn-primary" invisible="state != 'draft' or not id"/>
                     <button name="action_review_apply" type="object" string="Review and apply" class="btn-primary"
@@ -31,13 +105,9 @@
                     <button name="action_review_revert" type="object" string="Review revert"
                             invisible="state != 'applied'"/>
                     <button name="action_new_run" type="object" string="New run with these settings" invisible="state == 'draft'"/>
-                    <field name="state" widget="statusbar"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,proposed,applied"/>
                 </header>
                 <sheet>
-                    <div class="oe_title">
-                        <label for="name"/>
-                        <h1><field name="name"/></h1>
-                    </div>
                     <field name="complete" invisible="1"/>
                     <field name="price_refresh_warning" invisible="1"/>
                     <p class="alert alert-warning" role="status" invisible="not price_refresh_warning">
@@ -61,47 +131,76 @@
                     <div class="alert alert-warning" role="alert" invisible="state != 'failed'">
                         <field name="compute_error" nolabel="1"/>
                     </div>
-                    <group>
-                        <group>
-                            <field name="objective" readonly="state != 'draft'"/>
-                            <field name="carbon_price" invisible="objective != 'gb_combined'" readonly="state != 'draft'"/>
-                            <field name="date_from" readonly="state != 'draft'"/>
-                            <field name="date_to" readonly="state != 'draft'"/>
+                    <div class="oe_title">
+                        <label for="name" string="Proposal name"/>
+                        <h1><field name="name" placeholder="e.g. Abu Dhabi plant – summer week"/></h1>
+                    </div>
+                    <p class="text-muted o_gridsync_lead" invisible="state != 'draft'">
+                        Choose a window and the machines to plan. GridSync suggests cheaper times and changes nothing
+                        in Manufacturing until you click Review and apply.
+                    </p>
+
+                    <group class="o_gridsync_group">
+                        <group string="Planning window">
+                            <label for="window_start_date" string="Days" invisible="state != 'draft'"/>
+                            <div class="o_row" invisible="state != 'draft'">
+                                <field name="window_start_date" widget="daterange" placeholder="e.g. 15/11/2026"
+                                       options="{'end_date_field': 'window_end_date', 'always_range': True}"/>
+                                <field name="window_end_date" invisible="1"/>
+                            </div>
+                            <label for="window_start_time" string="Times" invisible="state != 'draft'"/>
+                            <div class="o_row o_gridsync_times" invisible="state != 'draft'">
+                                <field name="window_start_time" placeholder="e.g. 06:00"/>
+                                <span class="text-muted">to</span>
+                                <field name="window_end_time" placeholder="e.g. 22:00"/>
+                            </div>
+                            <div class="text-muted o_gridsync_hint" colspan="2" invisible="state != 'draft'">
+                                The start time applies to the first day and the end time to the last day.
+                            </div>
+                            <field name="date_from" string="Starts" readonly="1" force_save="1"
+                                   invisible="state == 'draft' and not date_from"/>
+                            <field name="date_to" string="Ends" readonly="1" force_save="1"
+                                   invisible="state == 'draft' and not date_to"/>
+                            <field name="objective" string="Optimise for" readonly="state != 'draft'"/>
+                            <field name="carbon_price" invisible="objective != 'gb_combined'" readonly="state != 'draft'"
+                                   placeholder="e.g. 80.00"/>
                             <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
                         </group>
-                        <group>
-                            <field name="workcenter_ids" widget="many2many_tags" readonly="state != 'draft'"
-                                   options="{'no_create': True}"/>
+                        <group string="Machines">
+                            <field name="workcenter_ids" string="Work centers" widget="many2many_tags"
+                                   readonly="state != 'draft'" options="{'no_create': True}"
+                                   placeholder="e.g. Aluminium extrusion press (ADDC), Packing line (ADDC)"/>
+                            <div class="text-muted o_gridsync_hint" colspan="2" invisible="state != 'draft'">
+                                Only machines with schedule suggestions turned on are listed. Pick machines from one plant
+                                so they share a tariff. The window can be up to 14 days.
+                            </div>
                         </group>
                     </group>
-                    <p class="text-muted" invisible="state != 'draft'">
-                        Choose work centers with schedule suggestions turned on. Operations that are ready or waiting, and either
-                        unplanned or planned to start in this period, are included. Other bookings stay in place.
-                    </p>
-                    <group invisible="state in ('draft', 'queued', 'failed')">
+
+                    <group class="o_gridsync_group" invisible="state in ('draft', 'queued', 'failed')">
                         <group string="Estimated energy cost" invisible="objective == 'gb_carbon'">
-                            <field name="currency_id" options="{'no_open': True}"/>
-                            <field name="proposed_cost"/>
+                            <field name="currency_id" invisible="1"/>
+                            <field name="compared_current_cost" string="Cost at current times" invisible="not compared_count"/>
+                            <field name="compared_proposed_cost" string="Proposed cost" invisible="not compared_count"/>
+                            <field name="proposed_cost" invisible="compared_count"/>
+                            <field name="compared_saving" string="Estimated saving" invisible="not compared_count"
+                                   decoration-success="compared_saving &gt; 0" decoration-danger="compared_saving &lt; 0"/>
+                            <field name="saving_percent" string="Saving (%)" invisible="not compared_current_cost"/>
                             <field name="shift_penalty" invisible="not shift_penalty"/>
-                            <field name="current_cost" invisible="not has_current_cost"/>
-                            <field name="saving" invisible="not has_current_cost"/>
-                            <field name="lower_bound" invisible="not has_lower_bound"/>
-                            <field name="gap" invisible="not has_lower_bound"/>
                         </group>
                         <group string="Estimated electricity emissions" invisible="objective == 'cost'">
-                            <field name="proposed_carbon_kg"/>
                             <field name="current_carbon_kg" invisible="not has_current_cost"/>
-                            <field name="carbon_lower_bound_kg" invisible="not has_lower_bound"/>
+                            <field name="proposed_carbon_kg"/>
                         </group>
                         <group string="Operations">
-                            <field name="job_count"/>
-                            <field name="moved_count"/>
-                            <field name="unchanged_count"/>
-                            <field name="unscheduled_count" decoration-warning="unscheduled_count"/>
-                            <field name="computed_at"/>
-                            <field name="method_label" invisible="state == 'draft'"/>
+                            <field name="job_count" string="In this proposal"/>
+                            <field name="moved_count" string="Moved"/>
+                            <field name="compared_count" string="With a current time" invisible="compared_count == job_count"/>
+                            <field name="unscheduled_count" string="Not scheduled" invisible="not unscheduled_count"
+                                   decoration-warning="unscheduled_count"/>
                         </group>
                     </group>
+
                     <group string="Schedule history" invisible="state not in ('applied', 'reverted')">
                         <group>
                             <field name="applied_at"/>
@@ -113,6 +212,25 @@
                         </group>
                     </group>
                     <notebook invisible="state in ('draft', 'queued', 'failed')">
+                        <page string="Cost analysis" name="cost_analysis" invisible="objective == 'gb_carbon'">
+                            <group class="o_gridsync_group">
+                                <group>
+                                    <field name="energy_kwh"/>
+                                </group>
+                                <group>
+                                    <field name="current_price_kwh" invisible="not compared_count"/>
+                                    <field name="proposed_price_kwh"/>
+                                </group>
+                            </group>
+                            <p class="text-muted" invisible="compared_count == job_count">
+                                Operations that are not planned yet, or whose current time has no prices, have no current cost.
+                                They are left out of the like-for-like comparison and counted in the proposed totals only.
+                            </p>
+                            <div class="o_horizontal_separator o_gridsync_separator">Cost by work center</div>
+                            <field name="cost_breakdown" nolabel="1"/>
+                            <button name="%(action_grid_cost_analysis)d" type="action" string="Open in pivot and graph"
+                                    class="btn-secondary mt-2" context="{'search_default_run_id': id}"/>
+                        </page>
                         <page string="Operations" name="lines">
                             <field name="line_ids">
                                 <list create="0" delete="0" edit="0"
@@ -121,7 +239,7 @@
                                     <field name="has_current_cost" column_invisible="1"/>
                                     <field name="operation_state" column_invisible="1"/>
                                     <field name="energy_result_ids" column_invisible="1"/>
-                                    <field name="production_id"/>
+                                    <field name="production_id" optional="hide"/>
                                     <field name="operation"/>
                                     <button name="action_open_meter_import" type="object" string="Import readings"
                                             groups="mrp_grid_scheduler.group_grid_manager" column_invisible="parent.state != 'applied'"
@@ -132,20 +250,49 @@
                                     <field name="duration_minutes" optional="hide"/>
                                     <field name="deadline" optional="hide"/>
                                     <field name="current_start"/>
-                                    <field name="current_end" optional="show"/>
+                                    <field name="current_end" optional="hide"/>
                                     <field name="proposed_start"/>
-                                    <field name="proposed_end"/>
+                                    <field name="proposed_end" optional="hide"/>
                                     <field name="energy_kwh" optional="show"/>
                                     <field name="current_cost" column_invisible="parent.objective == 'gb_carbon'" invisible="not has_current_cost"/>
                                     <field name="proposed_cost" column_invisible="parent.objective == 'gb_carbon'" invisible="status == 'unscheduled'"/>
+                                    <field name="saving" optional="show" column_invisible="parent.objective == 'gb_carbon'"
+                                           invisible="not has_current_cost or status == 'unscheduled'"
+                                           decoration-success="saving &gt; 0" decoration-danger="saving &lt; 0"/>
                                     <field name="shift_penalty" column_invisible="parent.objective == 'gb_carbon'" optional="hide"/>
                                     <field name="current_carbon_kg" column_invisible="parent.objective == 'cost'" invisible="not has_current_cost"/>
                                     <field name="proposed_carbon_kg" column_invisible="parent.objective == 'cost'" invisible="status == 'unscheduled'"/>
                                     <field name="status" widget="badge" decoration-info="status == 'moved'"
                                            decoration-success="status == 'unchanged'" decoration-warning="status == 'unscheduled'"/>
-                                    <field name="reason"/>
+                                    <field name="reason" optional="hide"/>
                                 </list>
                             </field>
+                        </page>
+                        <page string="Details" name="details">
+                            <group>
+                                <group string="Estimated energy cost" invisible="objective == 'gb_carbon'">
+                                    <field name="currency_id" options="{'no_open': True}"/>
+                                    <field name="proposed_cost"/>
+                                    <field name="shift_penalty" invisible="not shift_penalty"/>
+                                    <field name="current_cost" invisible="not has_current_cost"/>
+                                    <field name="saving" invisible="not has_current_cost"/>
+                                    <field name="lower_bound" invisible="not has_lower_bound"/>
+                                    <field name="gap" invisible="not has_lower_bound"/>
+                                </group>
+                                <group string="Estimated electricity emissions" invisible="objective == 'cost'">
+                                    <field name="proposed_carbon_kg"/>
+                                    <field name="current_carbon_kg" invisible="not has_current_cost"/>
+                                    <field name="carbon_lower_bound_kg" invisible="not has_lower_bound"/>
+                                </group>
+                                <group string="Operations">
+                                    <field name="job_count"/>
+                                    <field name="moved_count"/>
+                                    <field name="unchanged_count"/>
+                                    <field name="unscheduled_count" decoration-warning="unscheduled_count"/>
+                                    <field name="computed_at"/>
+                                    <field name="method_label" invisible="state == 'draft'"/>
+                                </group>
+                            </group>
                         </page>
                         <page string="Data and assumptions" name="data">
                             <group><field name="method_label" invisible="state == 'draft'"/></group>
@@ -223,6 +370,8 @@
     </record>
     <menuitem id="menu_grid_schedule" name="Schedule" parent="menu_grid_root" action="action_grid_schedule_run"
               groups="group_grid_planner" sequence="5"/>
+    <menuitem id="menu_grid_cost_analysis" name="Cost analysis" parent="menu_grid_root" action="action_grid_cost_analysis"
+              groups="group_grid_planner" sequence="6"/>
     <record id="view_grid_schedule_confirm_form" model="ir.ui.view">
         <field name="name">grid.schedule.confirm.form</field>
         <field name="model">grid.schedule.confirm</field>

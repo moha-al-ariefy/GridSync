@@ -55,6 +55,10 @@
             <xpath expr="/form" position="attributes">
                 <attribute name="js_class">grid_record_form</attribute>
             </xpath>
+            <!-- Product capacities are a Manufacturing setting; GridSync does not use them. -->
+            <xpath expr="//notebook/page[@name='capacity']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
         </field>
     </record>
     <record id="action_grid_workcenters" model="ir.actions.act_window">
